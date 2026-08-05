@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "local_agent_workbench": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/Users/bytedance/luobata/multi-agent/dist/mcp/main.js",
+        "--daemon-url",
+        "http://127.0.0.1:4318"
+      ],
+      "env": {}
+    }
+  }
+}
