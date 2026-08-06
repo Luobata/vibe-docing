@@ -5,11 +5,13 @@ import { getPlainSelection, type PlainSelection } from '../doc/selection'
 
 export function DocView({
   annotations,
+  errorText,
   node,
   onRetry,
   onSelect,
 }: {
   annotations: Array<AnnotationRow | { from: number; id: string; to: number }>
+  errorText?: string
   node: NodeRow
   onRetry(): void
   onSelect(selection: PlainSelection): void
@@ -53,7 +55,7 @@ export function DocView({
       </div>
       {node.status === 'error' && (
         <div className="inline-error" role="alert">
-          <span>生成中断，已保留当前内容。</span>
+          <span>{errorText ?? '生成中断，已保留当前内容。'}</span>
           <button aria-label="retry" onClick={onRetry} type="button">重试</button>
         </div>
       )}

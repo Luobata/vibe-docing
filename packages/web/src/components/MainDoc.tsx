@@ -3,53 +3,65 @@ import {
   type AnnotationRow,
   type NodeRow,
 } from '@vibe/shared'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApi } from '../api/context'
 import type { Api } from '../api/client'
 import type { PlainSelection } from '../doc/selection'
-import {
-  decideRouteUi,
-  nextTempId,
-  resolveMigrationParent,
-  type RouteUi,
-} from '../flow/answer-flow'
-import { parallelAsk } from '../flow/parallel-ask'
+import { useAutoScroll } from '../flow/use-auto-scroll'
 import { useWorkbench } from '../state/workbench-store'
 import { AnnotationBubble } from './AnnotationBubble'
+import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
-import { RoutePrompt } from './RoutePrompt'
+
+interface Turn {
+  answer: NodeRow
+  id: string
+  question: string
+}
+
+type Phase = 'idle' | 'replying' | 'thinking'
+
+function humanize(message: string): string {
+  const m = message.trim()
+  if (/HTTP\s*(401|403)/.test(m)) return '模型鉴权失败，请到设置检查 API Key。'
+  if (/HTTP\s*4\d\d/.test(m)) return '请求有误，请稍后重试。'
+  if (/HTTP\s*5\d\d/.test(m) || /answer failed/i.test(m)) return '生成失败，可能是模型服务不稳定，请重试。'
+  if (/fetch|network|Failed to fetch/i.test(m)) return '网络异常，请检查连接后重试。'
+  return '生成中断，请重试。'
+}
 
 export function MainDoc() {
   const api = useApi()
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
   const nodesById = useWorkbench((state) => state.nodesById)
-  const openSubdocTab = useWorkbench((state) => state.openSubdocTab)
-  const setMain = useWorkbench((state) => state.setMain)
-  const setRouteState = useWorkbench((state) => state.setRouteState)
-  const setToast = useWorkbench((state) => state.setToast)
   const treeId = useWorkbench((state) => state.treeId)
   const upsertNode = useWorkbench((state) => state.upsertNode)
   const [annotations, setAnnotations] = useState<AnnotationRow[]>([])
-  const [answerNodeId, setAnswerNodeId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<PlainSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [transcript, setTranscript] = useState<Turn[]>([])
+  const [lastTurnNodeId, setLastTurnNodeId] = useState<string | null>(null)
   const [lastQuestion, setLastQuestion] = useState('')
-  const [migratedParentId, setMigratedParentId] = useState<string | null>(null)
-  const [optimisticNode, setOptimisticNode] = useState<NodeRow | null>(null)
-  const [routeUi, setRouteUi] = useState<RouteUi>({ action: 'none' })
+  const [phase, setPhase] = useState<Phase>('idle')
+  const stopRef = useRef(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const streamSignature =
+    transcript.length +
+    ':' +
+    (transcript[transcript.length - 1]?.answer.ai_response?.length ?? 0)
+  const { scrollToBottom, showButton } = useAutoScroll(scrollRef, streamSignature)
 
   useEffect(() => {
     let active = true
     setAnnotations([])
     setSelection(null)
     setError(null)
-    setAnswerNodeId(null)
-    setLastQuestion('')
-    setMigratedParentId(null)
-    setOptimisticNode(null)
-    setRouteUi({ action: 'none' })
+    setTranscript([])
+    setLastTurnNodeId(null)
+    setPhase('idle')
+    stopRef.current = false
     if (!mainNodeId) return () => { active = false }
     const getNode = (api as Partial<Api>).getNode
     if (!getNode) return () => { active = false }
@@ -69,6 +81,14 @@ export function MainDoc() {
   const node = nodesById[mainNodeId]
   if (!node) return <div className="inline-error" role="alert">当前文档不存在</div>
 
+  function patchLastTurn(patch: Partial<NodeRow>): void {
+    setTranscript((turns) => {
+      if (turns.length === 0) return turns
+      const last = turns[turns.length - 1]
+      return [...turns.slice(0, -1), { ...last, answer: { ...last.answer, ...patch } }]
+    })
+  }
+
   async function forkExpand(question: string): Promise<void> {
     if (!selection || !treeId) return
     setError(null)
@@ -83,6 +103,7 @@ export function MainDoc() {
       })
       setAnnotations((current) => [...current, result.annotation])
       const childId = result.childNode.id
+      const openSubdocTab = useWorkbench.getState().openSubdocTab
       upsertNode({ ...result.childNode, status: 'streaming', user_input: question })
       openSubdocTab(childId)
       setSelection(null)
@@ -105,27 +126,43 @@ export function MainDoc() {
     }
   }
 
+  async function runTurn(answerId: string, question: string): Promise<void> {
+    let text = ''
+    await api.streamAnswer(answerId, question, {
+      onChunk(chunk) {
+        if (stopRef.current) return
+        setPhase('replying')
+        text += chunk
+        patchLastTurn({ ai_response: plainTextToProseMirror(text), status: 'streaming' })
+      },
+      onDone(doneNode) {
+        if (stopRef.current) return
+        patchLastTurn({ ...doneNode, status: doneNode.status ?? 'complete' })
+        setPhase('idle')
+      },
+      onError(message) {
+        if (stopRef.current) return
+        patchLastTurn({ status: 'error' })
+        setError(humanize(message))
+        setPhase('idle')
+      },
+    })
+  }
+
   async function ask(question: string): Promise<void> {
     if (!treeId || busy) return
-    const optimisticParentId = node.id
-    let answerText = ''
-    let currentAnswer: NodeRow = {
-      ...node,
-      ai_response: plainTextToProseMirror(''),
-      id: nextTempId(),
-      parent_id: optimisticParentId,
-      status: 'streaming',
-      user_input: question,
-    }
+    // Linear conversation: fork from the previous turn's answer (or the main node
+    // for the first turn) so the backend's ancestor-full segments carry history.
+    // We deliberately do NOT setMain / openSubdocTab / upsertNode — the turns stay
+    // an in-place chat thread and never pollute the tree/subdoc tabs.
+    const parentId = lastTurnNodeId ?? node.id
     setBusy(true)
     setError(null)
+    setPhase('thinking')
     setLastQuestion(question)
-    setMigratedParentId(null)
-    setRouteUi({ action: 'none' })
-    setOptimisticNode(currentAnswer)
-
+    stopRef.current = false
     try {
-      const forked = await api.fork(optimisticParentId, {
+      const forked = await api.fork(parentId, {
         anchorFrom: null,
         anchorTo: null,
         kind: 'whole',
@@ -134,70 +171,45 @@ export function MainDoc() {
         treeId,
       })
       const prepared = await api.editNode(forked.childNode.id, { userInput: question })
-      currentAnswer = {
-        ...prepared.node,
-        ai_response: plainTextToProseMirror(''),
-        status: 'streaming',
-      }
-      setAnswerNodeId(currentAnswer.id)
-      setOptimisticNode(currentAnswer)
-      upsertNode(currentAnswer)
-      openSubdocTab(currentAnswer.id)
-
-      await parallelAsk({ api }, { answerNodeId: currentAnswer.id, question }, {
-        onChunk(chunk) {
-          answerText += chunk
-          currentAnswer = {
-            ...currentAnswer,
-            ai_response: plainTextToProseMirror(answerText),
-            status: 'streaming',
-          }
-          setOptimisticNode(currentAnswer)
-          upsertNode(currentAnswer)
-        },
-        onDone(doneNode) {
-          currentAnswer = doneNode
-          setOptimisticNode(doneNode)
-          upsertNode(doneNode)
-        },
-        onError(message) {
-          currentAnswer = { ...currentAnswer, status: 'error' }
-          setOptimisticNode(currentAnswer)
-          upsertNode(currentAnswer)
-          setError(`生成中断：${message}`)
-        },
-        onRoute(convergence) {
-          setRouteState(currentAnswer.id, convergence)
-          setRouteUi(decideRouteUi(convergence))
-        },
-      })
+      const answerId = prepared.node.id
+      setLastTurnNodeId(answerId)
+      setTranscript((turns) => [...turns, {
+        answer: { ...prepared.node, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: question },
+        id: answerId,
+        question,
+      }])
+      await runTurn(answerId, question)
     } catch (cause) {
-      currentAnswer = { ...currentAnswer, status: 'error' }
-      setOptimisticNode(currentAnswer)
-      setError(cause instanceof Error ? `提问失败：${cause.message}` : '提问失败，请重试。')
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '提问失败，请重试。')
+      setPhase('idle')
     } finally {
       setBusy(false)
     }
   }
 
-  async function migrate(candidate: Parameters<typeof resolveMigrationParent>[0]): Promise<void> {
-    if (!answerNodeId) return
-    const newParentId = resolveMigrationParent(candidate, node.id)
+  async function retryLastTurn(): Promise<void> {
+    if (busy || !lastQuestion) return
+    if (!lastTurnNodeId) { void ask(lastQuestion); return }
+    setBusy(true)
     setError(null)
+    setPhase('thinking')
+    stopRef.current = false
+    patchLastTurn({ status: 'streaming' })
     try {
-      const result = await api.migrate(answerNodeId, {
-        newParentId,
-        seedText: lastQuestion,
-        target: candidate.target,
-      })
-      upsertNode(result.node)
-      if (nodesById[newParentId]?.parent_id === node.id) openSubdocTab(newParentId)
-      setMigratedParentId(result.node.parent_id)
-      setRouteUi({ action: 'none' })
-      setToast('已迁移，回答内容未重新生成。')
-    } catch {
-      setError('迁移失败，回答仍保留在主文档下。')
+      await runTurn(lastTurnNodeId, lastQuestion)
+    } catch (cause) {
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重试失败，请重试。')
+      setPhase('idle')
+    } finally {
+      setBusy(false)
     }
+  }
+
+  function stop(): void {
+    stopRef.current = true
+    setPhase('idle')
+    setBusy(false)
+    patchLastTurn({ status: 'complete' })
   }
 
   async function retryCurrent(): Promise<void> {
@@ -225,39 +237,39 @@ export function MainDoc() {
 
   return (
     <div className="main-doc-content">
-      <DocView annotations={annotations} node={node} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
-      {selection && (
-        <AnnotationBubble
-          onCreateNote={() => setSelection(null)}
-          onDismiss={() => setSelection(null)}
-          onForkExpand={(question) => { void forkExpand(question) }}
-          selection={selection}
-        />
-      )}
-      {optimisticNode && optimisticNode.id !== node.id && (
-        <section aria-label="本轮回答" className="optimistic-answer">
-          <span className="eyebrow">本轮回答 · 主文档延续</span>
-          <DocView
-            annotations={[]}
-            node={optimisticNode}
-            onRetry={() => { void ask(lastQuestion) }}
-            onSelect={() => {}}
+      <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
+        <DocView annotations={annotations} node={node} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        {transcript.map((turn, index) => (
+          <section aria-label="对话轮次" className="turn" key={turn.id}>
+            <p className="turn-question" data-testid="turn-question">{turn.question}</p>
+            <DocView
+              annotations={[]}
+              errorText={index === transcript.length - 1 && error ? error : undefined}
+              node={turn.answer}
+              onRetry={() => { void retryLastTurn() }}
+              onSelect={() => {}}
+            />
+          </section>
+        ))}
+        {selection && (
+          <AnnotationBubble
+            onCreateNote={() => setSelection(null)}
+            onDismiss={() => setSelection(null)}
+            onForkExpand={(question) => { void forkExpand(question) }}
+            selection={selection}
           />
-        </section>
-      )}
-      <RoutePrompt
-        decision={routeUi}
-        onAccept={(candidate) => { void migrate(candidate) }}
-        onDismiss={() => setRouteUi({ action: 'none' })}
-        onPick={(candidate) => { void migrate(candidate) }}
-      />
-      {migratedParentId && migratedParentId !== node.id && (
-        <button className="migration-link" onClick={() => setMain(migratedParentId)} type="button">
-          查看迁移位置
+        )}
+        {error && transcript.length === 0 && <p className="inline-error" role="alert">{error}</p>}
+      </div>
+      {showButton && (
+        <button className="scroll-to-bottom" data-testid="scroll-to-bottom" onClick={scrollToBottom} type="button">
+          ↓ 回到底部
         </button>
       )}
-      {error && <p className="inline-error" role="alert">{error}</p>}
-      <ChatBox disabled={busy} onSubmit={(question) => { void ask(question) }} />
+      <div className="composer">
+        {phase !== 'idle' && <AssistantStatus onStop={stop} phase={phase} />}
+        <ChatBox disabled={busy} onSubmit={(question) => { void ask(question) }} />
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -22,6 +22,19 @@ describe('MainDoc fork flow', () => {
     expect(empty).toHaveTextContent('左上角')
     expect(empty).toHaveTextContent('新建')
     expect(empty).toHaveTextContent('对话')
+  })
+
+  it('puts the conversation in a scroll region above the composer', () => {
+    const root = node('root', null)
+    const api = { getNode: vi.fn(() => new Promise(() => {})) }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+    const scroll = screen.getByTestId('conversation-scroll')
+    const chat = screen.getByLabelText('chat-input')
+    // ChatBox lives in the composer, which is a sibling *after* the scroll region.
+    expect(scroll).toBeInTheDocument()
+    expect(scroll.contains(chat)).toBe(false)
+    expect(scroll.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('forks the selected text and opens the returned child tab', async () => {
@@ -99,43 +112,143 @@ describe('MainDoc fork flow', () => {
     })
   })
 
-  it('streams an optimistic answer, applies four-state routing, and migrates without auto-promoting', async () => {
+  it('streams an answer in place without opening a subdoc tab or promoting', async () => {
     const root = node('root', null)
-    const subdoc = { ...node('subdoc', 'root'), user_input: 'Redis 深入' }
     const answer = { ...node('answer', 'root'), user_input: '持久化怎么配？' }
-    const moved = { ...answer, parent_id: 'subdoc' }
+    const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
+      onChunk(text: string): void
+      onDone(result: NodeRow): void
+    }) => {
+      handlers.onChunk('回答')
+      handlers.onDone({ ...answer, ai_response: JSON.stringify({ content: [{ content: [{ text: '回答', type: 'text' }], type: 'paragraph' }], type: 'doc' }), status: 'complete' })
+    })
     const api = {
       editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
       fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
       getNode: vi.fn(() => new Promise(() => {})),
-      migrate: vi.fn(async () => ({ node: moved, path: [root, subdoc, moved] })),
-      route: vi.fn(async () => ({
-        candidates: [{ label: 'Redis 深入', refId: 'subdoc', score: 0.91, target: 'bound-subdoc' }],
-        chosen: { label: 'Redis 深入', refId: 'subdoc', score: 0.91, target: 'bound-subdoc' },
-        fallback: { label: '主文档', refId: null, score: 1, target: 'main-continuation' },
-        state: 'high-confidence-elsewhere',
-        thresholds: { highConfidence: 0.7, leadMargin: 0.2 },
-      })),
-      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
-        onChunk(text: string): void
-        onDone(result: NodeRow): void
-      }) => {
-        handlers.onChunk('回答')
-        handlers.onDone({ ...answer, ai_response: JSON.stringify({ content: [{ content: [{ text: '回答', type: 'text' }], type: 'paragraph' }], type: 'doc' }) })
-      }),
+      streamAnswer,
     }
-    useWorkbench.getState().loadTree({ nodes: [root, subdoc], rootNodeId: 'root', treeId: 't' })
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '持久化怎么配？' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
+    // the question shows in place, paired with the answer, in the conversation region
+    expect(await screen.findByTestId('turn-question')).toHaveTextContent('持久化怎么配？')
     expect(await screen.findByText('回答')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: '搬过去' }))
-    await waitFor(() => expect(api.migrate).toHaveBeenCalledWith('answer', {
-      newParentId: 'subdoc', seedText: '持久化怎么配？', target: 'bound-subdoc',
-    }))
+    // linear: no promotion, no subdoc tab, no routing/migration UI
     expect(useWorkbench.getState().mainNodeId).toBe('root')
-    expect(await screen.findByRole('button', { name: '查看迁移位置' })).toBeInTheDocument()
+    expect(useWorkbench.getState().activeSubdocId).toBeNull()
+    expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
+    expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '查看迁移位置' })).toBeNull()
+  })
+
+  it('chains follow-up turns by forking from the previous answer node', async () => {
+    const root = node('root', null)
+    const a1 = { ...node('answer1', 'root'), user_input: '第一问' }
+    const a2 = { ...node('answer2', 'answer1'), user_input: '第二问' }
+    let forkCount = 0
+    const api = {
+      editNode: vi.fn(async (id: string) => ({ node: { ...(id === 'answer1' ? a1 : a2), status: 'draft' as const } })),
+      fork: vi.fn(async () => {
+        forkCount += 1
+        return { annotation: { id: `ann${forkCount}` }, childNode: forkCount === 1 ? a1 : a2 }
+      }),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+        handlers.onChunk('x')
+        handlers.onDone({ ...(forkCount === 1 ? a1 : a2), status: 'complete' })
+      }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '第一问' })))
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第二问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    // second turn forks from the FIRST answer node, not from root
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ kind: 'whole', seedText: '第二问' })))
+  })
+
+  it('surfaces thinking then replying status, and clears it when done', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: 'Q' }
+    let resolveDone: (() => void) | null = null
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'a' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+        handlers.onChunk('片段')
+        await new Promise<void>((resolve) => { resolveDone = () => { handlers.onDone({ ...answer, status: 'complete' }); resolve() } })
+      }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: 'Q' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // after the first chunk the status reads "replying"
+    await waitFor(() => expect(screen.getByTestId('assistant-status')).toHaveTextContent('回复'))
+    await act(async () => { resolveDone?.() })
+    await waitFor(() => expect(screen.queryByTestId('assistant-status')).toBeNull())
+  })
+
+  it('stops streaming on demand and re-enables input', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: 'Q' }
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'a' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      // never calls onDone → stays streaming until stopped
+      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void }) => {
+        handlers.onChunk('片段')
+        await new Promise<void>(() => {})
+      }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: 'Q' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: '停止' }))
+    await waitFor(() => expect(screen.queryByTestId('assistant-status')).toBeNull())
+    expect(screen.getByLabelText('chat-input')).not.toBeDisabled()
+  })
+
+  it('humanizes stream errors, keeps input usable, and retries the same turn', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '会失败的问题' }
+    let call = 0
+    const streamAnswer = vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void; onError(m: string): void }) => {
+      call += 1
+      if (call === 1) { handlers.onError('HTTP 500'); return }
+      handlers.onChunk('好了'); handlers.onDone({ ...answer, status: 'complete' })
+    })
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'a' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '会失败的问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).not.toHaveTextContent('HTTP 500')
+    expect(alert.textContent && alert.textContent.length > 0).toBe(true)
+    expect(screen.getByLabelText('chat-input')).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+    // retry re-runs streamAnswer against the SAME answer node with the SAME question
+    await waitFor(() => expect(streamAnswer).toHaveBeenNthCalledWith(2, 'answer', '会失败的问题', expect.anything()))
   })
 })
