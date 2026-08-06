@@ -82,9 +82,24 @@ export function MainDoc() {
         treeId,
       })
       setAnnotations((current) => [...current, result.annotation])
-      upsertNode(result.childNode)
-      openSubdocTab(result.childNode.id)
+      const childId = result.childNode.id
+      upsertNode({ ...result.childNode, status: 'streaming', user_input: question })
+      openSubdocTab(childId)
       setSelection(null)
+      // Design §4③ step 4: the forked child must hold the conversation itself,
+      // otherwise it is left permanently empty. Answer it with the seed question.
+      let text = ''
+      await api.streamAnswer(childId, question, {
+        onChunk(chunk) {
+          text += chunk
+          upsertNode({ ...result.childNode, ai_response: plainTextToProseMirror(text), status: 'streaming', user_input: question })
+        },
+        onDone: upsertNode,
+        onError(message) {
+          upsertNode({ ...result.childNode, status: 'error', user_input: question })
+          setError(`生成中断：${message}`)
+        },
+      })
     } catch {
       setError('分叉创建失败，请稍后重试。')
     }

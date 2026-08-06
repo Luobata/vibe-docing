@@ -44,6 +44,53 @@ describe('MainDoc fork flow', () => {
     })
   })
 
+  it('answers the forked child so it is not left empty (design §4③ step 4)', async () => {
+    const root = node('root', null)
+    const child = { ...node('child', 'root'), ai_response: null, status: 'draft' as const, user_input: null }
+    const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
+      onChunk(text: string): void
+      onDone(result: NodeRow): void
+    }) => {
+      handlers.onChunk('答案')
+      handlers.onDone({
+        ...child,
+        ai_response: JSON.stringify({ content: [{ content: [{ text: '答案', type: 'text' }], type: 'paragraph' }], type: 'doc' }),
+        status: 'complete',
+        user_input: '深入',
+      })
+    })
+    const api = {
+      fork: vi.fn(async () => ({ annotation: { id: 'ann1' }, childNode: child })),
+      getNode: vi.fn(async () => ({ annotations: [], node: root, segments: [] })),
+      route: vi.fn(async () => ({
+        candidates: [],
+        fallback: { label: '主文档', refId: null, score: 1, target: 'main-continuation' },
+        state: 'consistent',
+        thresholds: { highConfidence: 0.7, leadMargin: 0.2 },
+      })),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    const view = screen.getByTestId('doc-view')
+    const range = document.createRange()
+    range.selectNodeContents(view)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.mouseUp(view)
+    fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '深入' } })
+    fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
+
+    await waitFor(() => {
+      expect(streamAnswer).toHaveBeenCalledWith('child', '深入', expect.anything())
+    })
+    await waitFor(() => {
+      expect(useWorkbench.getState().nodesById['child']?.status).toBe('complete')
+    })
+  })
+
   it('streams an optimistic answer, applies four-state routing, and migrates without auto-promoting', async () => {
     const root = node('root', null)
     const subdoc = { ...node('subdoc', 'root'), user_input: 'Redis 深入' }

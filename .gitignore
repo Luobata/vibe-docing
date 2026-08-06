@@ -5,3 +5,7 @@
 node_modules/
 *.tsbuildinfo
 dist/
+midscene_run/
+vibe*.db
+vibe*.db-shm
+vibe*.db-wal
