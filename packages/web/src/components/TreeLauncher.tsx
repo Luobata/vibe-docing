@@ -67,7 +67,7 @@ export function TreeLauncher() {
           placeholder="给新树一个标题"
           value={title}
         />
-        <button disabled={busy || !title.trim()} onClick={() => { void create() }} type="button">新建树</button>
+        <button disabled={busy || !title.trim()} onClick={() => { void create() }} title={title.trim() ? undefined : '请先输入标题'} type="button">新建树</button>
       </div>
       {trees.length > 0 && (
         <ul aria-label="已有树">

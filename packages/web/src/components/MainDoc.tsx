@@ -65,7 +65,7 @@ export function MainDoc() {
     return () => { active = false }
   }, [api, mainNodeId, upsertNode])
 
-  if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">选择或新建一棵树开始</div>
+  if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入标题并新建一棵树，选中节点后即可在下方对话生成内容</div>
   const node = nodesById[mainNodeId]
   if (!node) return <div className="inline-error" role="alert">当前文档不存在</div>
 

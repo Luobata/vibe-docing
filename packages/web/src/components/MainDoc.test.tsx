@@ -16,6 +16,14 @@ function node(id: string, parentId: string | null): NodeRow {
 describe('MainDoc fork flow', () => {
   beforeEach(() => useWorkbench.getState().reset())
 
+  it('guides the user how to start when no node is selected', () => {
+    render(<ApiProvider api={{} as never}><MainDoc /></ApiProvider>)
+    const empty = screen.getByTestId('main-doc-empty')
+    expect(empty).toHaveTextContent('左上角')
+    expect(empty).toHaveTextContent('新建')
+    expect(empty).toHaveTextContent('对话')
+  })
+
   it('forks the selected text and opens the returned child tab', async () => {
     const root = node('root', null)
     const child = { ...node('child', 'root'), user_input: '深入' }

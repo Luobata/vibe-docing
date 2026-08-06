@@ -35,4 +35,12 @@ describe('TreeLauncher', () => {
     await waitFor(() => expect(api.getTree).toHaveBeenCalledWith('t1'))
     expect(useWorkbench.getState().treeId).toBe('t1')
   })
+
+  it('hints why 新建树 is disabled when the title is empty', () => {
+    const api = { listTrees: vi.fn(async () => ({ trees: [] })) }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    const button = screen.getByRole('button', { name: '新建树' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', '请先输入标题')
+  })
 })
