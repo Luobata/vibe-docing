@@ -49,16 +49,14 @@ function TreeBranch({ nodeId, onDelete }: { nodeId: string; onDelete(id: string)
           <span aria-hidden="true">{children.length ? '⌄' : '·'}</span>{' '}
           {nodeTitle(node)}
         </button>
-        {node.parent_id && (
-          <button
-            aria-label={`删除“${nodeTitle(node)}”`}
-            className="tree-node-delete"
-            onClick={() => onDelete(node.id)}
-            type="button"
-          >
-            ×
-          </button>
-        )}
+        <button
+          aria-label={`删除“${nodeTitle(node)}”`}
+          className="tree-node-delete"
+          onClick={() => onDelete(node.id)}
+          type="button"
+        >
+          ×
+        </button>
       </div>
       {children.length > 0 && (
         <ul>
@@ -80,6 +78,19 @@ export function TreePanel() {
   const [error, setError] = useState<string | null>(null)
 
   async function handleDelete(id: string): Promise<void> {
+    const node = nodesById[id]
+    if (node && !node.parent_id) {
+      if (!window.confirm(`将删除整棵树“${nodeTitle(node)}”，可在回收站/树列表恢复。`)) return
+      setError(null)
+      const treeId = useWorkbench.getState().treeId
+      try {
+        await api.deleteTree(treeId!)
+        useWorkbench.getState().reset()
+      } catch {
+        setError('删除树失败，请稍后重试。')
+      }
+      return
+    }
     const count = countSubtree(nodesById, id)
     const label = nodeTitle(nodesById[id])
     const message = count > 1
