@@ -112,6 +112,58 @@ describe('MainDoc fork flow', () => {
     })
   })
 
+  it('answers the empty root node directly instead of forking an empty root', async () => {
+    const root = { ...node('root', null), ai_response: null, status: 'complete' as const, user_input: null }
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...root, status: 'draft' as const, user_input: '第一个问题' } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'x' }, childNode: node('child', 'root') })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+        handlers.onChunk('根答案')
+        handlers.onDone({ ...root, ai_response: JSON.stringify({ content: [{ content: [{ text: '根答案', type: 'text' }], type: 'paragraph' }], type: 'doc' }), status: 'complete', user_input: '第一个问题' })
+      }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一个问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // first question fills the ROOT node itself — no fork, no empty root left behind
+    await waitFor(() => expect(api.streamAnswer).toHaveBeenCalledWith('root', '第一个问题', expect.anything()))
+    expect(api.fork).not.toHaveBeenCalled()
+    await waitFor(() => expect(useWorkbench.getState().nodesById['root']?.user_input).toBe('第一个问题'))
+    expect(useWorkbench.getState().nodesById['root']?.status).toBe('complete')
+    // no separate transcript turn for the first question
+    expect(screen.queryByTestId('turn-question')).toBeNull()
+  })
+
+  it('forks a follow-up after the root already has an answer', async () => {
+    const root = { ...node('root', null), ai_response: null, status: 'complete' as const, user_input: null }
+    const answered = { ...root, ai_response: JSON.stringify({ content: [{ content: [{ text: '根答案', type: 'text' }], type: 'paragraph' }], type: 'doc' }), user_input: '第一个问题' }
+    const child = { ...node('child', 'root'), user_input: '追问' }
+    const api = {
+      editNode: vi.fn(async (id: string) => ({ node: { ...(id === 'root' ? answered : child), status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'x' }, childNode: child })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer: vi.fn(async (id: string, _q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+        handlers.onChunk('x')
+        handlers.onDone({ ...(id === 'root' ? answered : child), status: 'complete' })
+      }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一个问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.streamAnswer).toHaveBeenNthCalledWith(1, 'root', '第一个问题', expect.anything()))
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '追问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    // now that root has an answer, the follow-up forks from root
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '追问' })))
+  })
+
   it('streams an answer in place without opening a subdoc tab or promoting', async () => {
     const root = node('root', null)
     const answer = { ...node('answer', 'root'), user_input: '持久化怎么配？' }

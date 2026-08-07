@@ -149,19 +149,53 @@ export function MainDoc() {
     })
   }
 
+  // Answer the current node itself (used for the first question on an empty node,
+  // so we don't leave an empty root behind and fork a child needlessly).
+  async function answerInPlace(targetId: string, question: string): Promise<void> {
+    const prepared = await api.editNode(targetId, { userInput: question })
+    let text = ''
+    upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: question })
+    await api.streamAnswer(targetId, question, {
+      onChunk(chunk) {
+        if (stopRef.current) return
+        setPhase('replying')
+        text += chunk
+        upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(text), status: 'streaming', user_input: question })
+      },
+      onDone(doneNode) {
+        if (stopRef.current) return
+        upsertNode({ ...doneNode, status: doneNode.status ?? 'complete' })
+        setPhase('idle')
+      },
+      onError(message) {
+        if (stopRef.current) return
+        upsertNode({ ...prepared.node, status: 'error', user_input: question })
+        setError(humanize(message))
+        setPhase('idle')
+      },
+    })
+  }
+
   async function ask(question: string): Promise<void> {
     if (!treeId || busy) return
-    // Linear conversation: fork from the previous turn's answer (or the main node
-    // for the first turn) so the backend's ancestor-full segments carry history.
-    // We deliberately do NOT setMain / openSubdocTab / upsertNode — the turns stay
-    // an in-place chat thread and never pollute the tree/subdoc tabs.
-    const parentId = lastTurnNodeId ?? node.id
+    // Linear conversation. The first question on an empty node fills that node
+    // itself (no empty root left behind). Once a node already holds an answer,
+    // follow-ups fork from the previous turn's answer (or the current node), so
+    // the backend's ancestor-full segments carry history. Turns are local state
+    // only — never setMain / openSubdocTab, never pollute the tree/subdoc tabs.
+    const currentIsEmpty = !node.user_input && !node.ai_response
     setBusy(true)
     setError(null)
     setPhase('thinking')
     setLastQuestion(question)
     stopRef.current = false
     try {
+      if (transcript.length === 0 && lastTurnNodeId === null && currentIsEmpty) {
+        setLastTurnNodeId(node.id)
+        await answerInPlace(node.id, question)
+        return
+      }
+      const parentId = lastTurnNodeId ?? node.id
       const forked = await api.fork(parentId, {
         anchorFrom: null,
         anchorTo: null,
