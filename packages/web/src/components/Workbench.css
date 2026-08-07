@@ -18,6 +18,7 @@ button { font: inherit; }
   grid-template-columns: var(--col-left, 280px) 6px minmax(360px, 1fr) 6px var(--col-right, 360px);
   min-height: 100vh;
   background: #f3f0e8;
+  transition: grid-template-columns .24s ease;
 }
 
 .workbench[data-focus='true'] {
@@ -36,6 +37,17 @@ button { font: inherit; }
   min-width: 0;
   height: 100vh;
   overflow: auto;
+  transition: width .24s ease, opacity .24s ease, padding .24s ease;
+}
+
+.is-collapsed {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .main-doc {
@@ -220,6 +232,12 @@ button { font: inherit; }
 .workbench > [role='status'] { position: fixed; right: 20px; bottom: 20px; padding: 10px 14px; color: white; background: #2f5b4b; border-radius: 8px; }
 
 @keyframes cursor-pulse { 50% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-panel,
+  .subdoc-panel,
+  .workbench { transition: none; }
+}
 
 @media (max-width: 840px) {
   .workbench,

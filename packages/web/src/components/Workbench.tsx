@@ -46,10 +46,10 @@ export function Workbench() {
       style={{ '--col-left': leftWidth + 'px', '--col-right': rightWidth + 'px' } as React.CSSProperties}
     >
       <aside
+        aria-hidden={focusMode || undefined}
         aria-label="树导航"
-        className="tree-panel"
+        className={`tree-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="tree-panel"
-        hidden={focusMode}
       >
         <h1>树形对话工作台</h1>
         <TreeLauncher />
@@ -112,8 +112,9 @@ export function Workbench() {
       )}
 
       <section
+        aria-hidden={focusMode || undefined}
         aria-label="子文档"
-        className="subdoc-panel"
+        className={`subdoc-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="subdoc-panel"
       >
         <header className="panel-header">
