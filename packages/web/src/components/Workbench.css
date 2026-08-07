@@ -15,7 +15,7 @@ button { font: inherit; }
 
 .workbench {
   display: grid;
-  grid-template-columns: minmax(210px, 0.68fr) minmax(360px, 1.45fr) minmax(320px, 1fr);
+  grid-template-columns: var(--col-left, 280px) 6px minmax(360px, 1fr) 6px var(--col-right, 360px);
   min-height: 100vh;
   background: #f3f0e8;
 }
@@ -23,6 +23,13 @@ button { font: inherit; }
 .workbench[data-focus='true'] {
   grid-template-columns: minmax(420px, 1.45fr) minmax(340px, 1fr);
 }
+
+.col-resizer {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+.col-resizer:hover { background: #d0c8b9; }
 
 .tree-panel,
 .subdoc-panel {

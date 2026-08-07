@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useColumnResize } from '../flow/use-column-resize'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
 import { MainDoc } from './MainDoc'
@@ -27,6 +28,7 @@ export function Workbench() {
   const treeId = useWorkbench((state) => state.treeId)
   const [showTrash, setShowTrash] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
+  const { leftWidth, rightWidth, startDrag, resetSide } = useColumnResize()
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -37,7 +39,12 @@ export function Workbench() {
   }, [exitFocus])
 
   return (
-    <div className="workbench" data-focus={focusMode} data-testid="workbench">
+    <div
+      className="workbench"
+      data-focus={focusMode}
+      data-testid="workbench"
+      style={{ '--col-left': leftWidth + 'px', '--col-right': rightWidth + 'px' } as React.CSSProperties}
+    >
       <aside
         aria-label="树导航"
         className="tree-panel"
@@ -56,6 +63,16 @@ export function Workbench() {
           </div>
         )}
       </aside>
+
+      {!focusMode && (
+        <div
+          aria-orientation="vertical"
+          className="col-resizer"
+          onDoubleClick={() => resetSide('left')}
+          onMouseDown={(e) => startDrag('left', e.clientX)}
+          role="separator"
+        />
+      )}
 
       <main aria-label="主文档" className="main-doc" data-testid="main-doc">
         <Breadcrumb />
@@ -83,6 +100,16 @@ export function Workbench() {
         {showVersions && mainNodeId && <VersionPanel nodeId={mainNodeId} />}
         <MainDoc />
       </main>
+
+      {!focusMode && (
+        <div
+          aria-orientation="vertical"
+          className="col-resizer"
+          onDoubleClick={() => resetSide('right')}
+          onMouseDown={(e) => startDrag('right', e.clientX)}
+          role="separator"
+        />
+      )}
 
       <section
         aria-label="子文档"
