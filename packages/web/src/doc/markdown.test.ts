@@ -15,6 +15,50 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<td>1</td>')
   })
 
+  it('renders a table even when rows are separated by blank lines', () => {
+    // Some models emit tables double-spaced; blank lines between rows would
+    // otherwise split the table into paragraphs of literal `| … |` text.
+    const html = renderMarkdown(
+      '| 新增一级属性 | 适用场景 |\n\n| --- | --- |\n\n| 协作关系属性 | 多Agent协同 |',
+    )
+    expect(html).toContain('<table>')
+    expect(html).toContain('<td>协作关系属性</td>')
+    expect(html).not.toContain('<p>| 协作关系属性')
+  })
+
+  it('renders a table when a paragraph sits directly above it with no blank line', () => {
+    const html = renderMarkdown('常见可补充的一级属性如下：\n| A | B |\n| --- | --- |\n| 1 | 2 |')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<td>1</td>')
+    expect(html).toContain('<p>常见可补充的一级属性如下：</p>')
+  })
+
+  it('renders a table that follows a blockquote line with no blank line (screenshot bug)', () => {
+    // The real failure: `>` conditions text, then prose, then the table — all
+    // contiguous. Blockquote lazy-continuation swallowed the header and the
+    // pipes leaked as plain paragraphs.
+    const src =
+      '> ① 会直接影响核心决策 ② 会动态变化\n常见可补充的一级属性如下：\n| 新增一级属性 | 适用场景 |\n| --- | --- |\n| 协作关系属性 | 多Agent协同 |'
+    const html = renderMarkdown(src)
+    expect(html).toContain('<table>')
+    expect(html).toContain('<td>协作关系属性</td>')
+    expect(html).not.toContain('新增一级属性 |')
+  })
+
+  it('keeps a blank line between a table and following prose', () => {
+    const html = renderMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |\n\n随后的正文段落。')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<p>随后的正文段落。</p>')
+  })
+
+  it('renders a table wrapped in a blockquote with empty-quote separators', () => {
+    // `>` marker on the separator lines: `.trim()` would leave "&gt;", so the
+    // gap-collapsing must recognize empty blockquote lines as blank too.
+    const html = renderMarkdown('> | A | B |\n>\n> | --- | --- |\n>\n> | 1 | 2 |')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<td>1</td>')
+  })
+
   it('does not pass through raw inline HTML (no XSS injection)', () => {
     const html = renderMarkdown('普通 <img src=x onerror=alert(1)> 文本')
     expect(html).not.toContain('<img')

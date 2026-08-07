@@ -5,8 +5,69 @@ import type { AnnotationRange } from './highlight'
 // through (blocks the obvious XSS vector). linkify off to avoid surprise links.
 const md = new MarkdownIt({ breaks: true, html: false, linkify: false })
 
+// A GitHub-flavored table row: starts and ends with a pipe, tolerating leading
+// blockquote markers (`> | … |`). The delimiter row `| --- | --- |` matches too.
+const TABLE_ROW = /^\s*>?\s*\|.*\|\s*$/
+// The delimiter row directly under a table header: only pipes, dashes, colons
+// and spaces, and it must contain at least one dash. Optional `>` (blockquote)
+// and outer pipes are tolerated.
+const TABLE_DELIMITER = /^\s*>?\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
+// A blank separator line: truly empty, or an empty blockquote line (`>`).
+const BLANK_LINE = /^\s*>?\s*$/
+
+/**
+ * Models frequently emit GitHub tables that markdown-it won't parse, because a
+ * table only forms when a header row is a *fresh block*:
+ *
+ *  1. A paragraph (or a blockquote whose lazy continuation swallows the next
+ *     lines) sits directly above the header with no blank line between — the
+ *     header is absorbed into that paragraph and the pipes leak as text.
+ *  2. Rows are separated by blank lines, splitting the table into paragraphs.
+ *
+ * Normalize both: ensure exactly one blank line before a header row (a pipe row
+ * immediately followed by a delimiter row), and drop blank lines that sit
+ * strictly between two table rows. Blank lines elsewhere are left untouched.
+ */
+function normalizeTables(text: string): string {
+  const lines = text.split('\n')
+
+  // Pass 1: remove blank lines wedged between two table rows.
+  const joined: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (BLANK_LINE.test(lines[i])) {
+      let j = i
+      while (j < lines.length && BLANK_LINE.test(lines[j])) j++
+      const prev = joined[joined.length - 1]
+      const next = lines[j]
+      if (prev !== undefined && TABLE_ROW.test(prev) && next !== undefined && TABLE_ROW.test(next)) {
+        i = j - 1 // skip the blank run; the loop's i++ lands on the next row
+        continue
+      }
+    }
+    joined.push(lines[i])
+  }
+
+  // Pass 2: guarantee a blank line before every table header so it starts a
+  // fresh block instead of being absorbed by the paragraph/blockquote above.
+  const out: string[] = []
+  for (let i = 0; i < joined.length; i++) {
+    const isHeader =
+      TABLE_ROW.test(joined[i]) &&
+      i + 1 < joined.length &&
+      TABLE_DELIMITER.test(joined[i + 1])
+    if (isHeader) {
+      const prev = out[out.length - 1]
+      if (prev !== undefined && !BLANK_LINE.test(prev) && !TABLE_ROW.test(prev)) {
+        out.push('')
+      }
+    }
+    out.push(joined[i])
+  }
+  return out.join('\n')
+}
+
 export function renderMarkdown(text: string): string {
-  return md.render(text ?? '')
+  return md.render(normalizeTables(text ?? ''))
 }
 
 /**
