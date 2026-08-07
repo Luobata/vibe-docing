@@ -52,6 +52,9 @@ export function DocView({
         {node.status === 'streaming' && (
           <span aria-label="正在生成" className="streaming-cursor">▍</span>
         )}
+        {node.status === 'streaming' && text.length === 0 && (
+          <span className="thinking-hint">思考中…</span>
+        )}
       </div>
       {node.status === 'error' && (
         <div className="inline-error" role="alert">

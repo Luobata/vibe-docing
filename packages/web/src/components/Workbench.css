@@ -107,6 +107,7 @@ button { font: inherit; }
 .doc-view { min-height: 96px; color: #322f29; font-family: Georgia, "Songti SC", serif; font-size: 17px; line-height: 1.8; }
 .doc-view mark { padding: 1px 2px; color: inherit; background: #f1cf79; border-radius: 3px; }
 .streaming-cursor { display: inline-block; margin-left: 2px; color: #b44d2d; animation: cursor-pulse .85s steps(1) infinite; }
+.thinking-hint { margin-left: 8px; color: #766f64; font-size: 14px; font-style: italic; animation: cursor-pulse 1.2s ease-in-out infinite; }
 .inline-error { margin-top: 14px; padding: 10px 12px; color: #8b2e1f; background: #f8e6df; border-radius: 8px; }
 .inline-error button { margin-left: 10px; }
 .annotation-bubble { position: sticky; z-index: 3; bottom: 18px; display: grid; gap: 10px; width: min(460px, 100%); margin: 18px auto 0; padding: 16px; background: #24372f; color: #fffdf8; border: 1px solid #486457; border-radius: 12px; box-shadow: 0 18px 45px rgb(28 38 31 / 24%); }

@@ -44,4 +44,19 @@ describe('DocView', () => {
     fireEvent.click(screen.getByLabelText('retry'))
     expect(onRetry).toHaveBeenCalledOnce()
   })
+
+  it('shows a thinking hint while streaming with no content yet', () => {
+    const empty: NodeRow = { ...node('streaming'), ai_response: null, user_input: 'Q' }
+    const { rerender } = render(
+      <DocView annotations={[]} node={empty} onRetry={() => {}} onSelect={() => {}} />,
+    )
+    // before any token: blinking cursor + "思考中" hint
+    expect(screen.getByLabelText('正在生成')).toBeInTheDocument()
+    expect(screen.getByText(/思考中/)).toBeInTheDocument()
+
+    // once content streams in, the hint disappears (cursor stays)
+    rerender(<DocView annotations={[]} node={node('streaming')} onRetry={() => {}} onSelect={() => {}} />)
+    expect(screen.getByLabelText('正在生成')).toBeInTheDocument()
+    expect(screen.queryByText(/思考中/)).toBeNull()
+  })
 })
