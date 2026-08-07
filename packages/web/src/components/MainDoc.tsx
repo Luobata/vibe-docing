@@ -15,6 +15,7 @@ import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
 import { MergedConclusions } from './MergedConclusions'
+import { SelectionMenu } from './SelectionMenu'
 
 interface Turn {
   answer: NodeRow
@@ -45,6 +46,8 @@ export function MainDoc() {
   const [segments, setSegments] = useState<ContextSegmentRow[]>([])
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<PlainSelection | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [bubbleMode, setBubbleMode] = useState<'note' | 'expand' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<Turn[]>([])
   const [lastTurnNodeId, setLastTurnNodeId] = useState<string | null>(null)
@@ -64,6 +67,8 @@ export function MainDoc() {
     setNotesForMain([])
     setSegments([])
     setSelection(null)
+    setMenu(null)
+    setBubbleMode(null)
     setError(null)
     setTranscript([])
     setLastTurnNodeId(null)
@@ -127,6 +132,7 @@ export function MainDoc() {
       upsertNode({ ...result.childNode, status: 'streaming', user_input: question })
       openSubdocTab(childId)
       setSelection(null)
+      setBubbleMode(null)
       // Design §4③ step 4: the forked child must hold the conversation itself,
       // otherwise it is left permanently empty. Answer it with the seed question.
       let text = ''
@@ -292,7 +298,7 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
-        <DocView annotations={annotations} node={node} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        <DocView annotations={annotations} node={node} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
         <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
@@ -306,10 +312,19 @@ export function MainDoc() {
             />
           </section>
         ))}
-        {selection && (
+        {menu && selection && (
+          <SelectionMenu
+            onClose={() => setMenu(null)}
+            onPick={(kind) => { setBubbleMode(kind); setMenu(null) }}
+            x={menu.x}
+            y={menu.y}
+          />
+        )}
+        {selection && bubbleMode && (
           <AnnotationBubble
+            initialFocus={bubbleMode}
             onCreateNote={(noteText) => {
-              if (!selection) { setSelection(null); return }
+              if (!selection) { setSelection(null); setBubbleMode(null); return }
               void api.createNote(node.id, {
                 anchorFrom: selection.from, anchorTo: selection.to,
                 quotedText: selection.text, note: noteText,
@@ -319,8 +334,9 @@ export function MainDoc() {
                 add([...useWorkbench.getState().notesForMain, res.annotation])
               }).catch(() => setError('笔记保存失败，请重试。'))
               setSelection(null)
+              setBubbleMode(null)
             }}
-            onDismiss={() => setSelection(null)}
+            onDismiss={() => { setSelection(null); setBubbleMode(null) }}
             onForkExpand={(question) => { void forkExpand(question) }}
             selection={selection}
           />

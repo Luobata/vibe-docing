@@ -1,5 +1,5 @@
 import { prosemirrorToPlainText, type AnnotationRow, type NodeRow } from '@vibe/shared'
-import { useRef } from 'react'
+import { useRef, type MouseEvent } from 'react'
 import type { AnnotationRange } from '../doc/highlight'
 import { renderAnnotatedHtml } from '../doc/markdown'
 import { getPlainSelection, type PlainSelection } from '../doc/selection'
@@ -8,12 +8,14 @@ export function DocView({
   annotations,
   errorText,
   node,
+  onContextSelect,
   onRetry,
   onSelect,
 }: {
   annotations: Array<AnnotationRow | { from: number; id: string; to: number }>
   errorText?: string
   node: NodeRow
+  onContextSelect?(selection: PlainSelection, x: number, y: number): void
   onRetry(): void
   onSelect(selection: PlainSelection): void
 }) {
@@ -33,12 +35,21 @@ export function DocView({
     if (selection) onSelect(selection)
   }
 
+  function handleContextMenu(event: MouseEvent<HTMLDivElement>): void {
+    if (!bodyRef.current || !onContextSelect) return
+    const selection = getPlainSelection(bodyRef.current)
+    if (!selection) return
+    event.preventDefault()
+    onContextSelect(selection, event.clientX, event.clientY)
+  }
+
   return (
     <div className="doc-view-shell">
       <div className="doc-view" data-testid="doc-view">
         <div
           className="doc-body"
           dangerouslySetInnerHTML={{ __html: html }}
+          onContextMenu={handleContextMenu}
           onKeyUp={captureSelection}
           onMouseUp={captureSelection}
           ref={bodyRef}

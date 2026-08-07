@@ -2,11 +2,13 @@ import { useState } from 'react'
 import type { PlainSelection } from '../doc/selection'
 
 export function AnnotationBubble({
+  initialFocus,
   onCreateNote,
   onDismiss,
   onForkExpand,
   selection,
 }: {
+  initialFocus?: 'note' | 'expand'
   onCreateNote(note: string): void
   onDismiss(): void
   onForkExpand(question: string): void
@@ -22,7 +24,7 @@ export function AnnotationBubble({
         <span>笔记</span>
         <textarea
           aria-label="note"
-          autoFocus
+          autoFocus={initialFocus !== 'expand'}
           onChange={(event) => setNote(event.target.value)}
           placeholder="记下判断或待验证事项"
           value={note}
@@ -35,6 +37,7 @@ export function AnnotationBubble({
         <span>就此展开</span>
         <textarea
           aria-label="fork-question"
+          autoFocus={initialFocus === 'expand'}
           onChange={(event) => setQuestion(event.target.value)}
           placeholder={`围绕“${selection.text.slice(0, 24)}”继续追问`}
           value={question}

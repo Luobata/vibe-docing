@@ -54,7 +54,8 @@ describe('MainDoc fork flow', () => {
     const selection = window.getSelection()!
     selection.removeAllRanges()
     selection.addRange(range)
-    fireEvent.mouseUp(body)
+    fireEvent.contextMenu(body)
+    fireEvent.click(screen.getByRole('menuitem', { name: '就此展开' }))
     fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '深入' } })
     fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
 
@@ -102,7 +103,8 @@ describe('MainDoc fork flow', () => {
     const selection = window.getSelection()!
     selection.removeAllRanges()
     selection.addRange(range)
-    fireEvent.mouseUp(body)
+    fireEvent.contextMenu(body)
+    fireEvent.click(screen.getByRole('menuitem', { name: '就此展开' }))
     fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '深入' } })
     fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
 
