@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useApi } from '../api/context'
+import { useWorkbench } from '../state/workbench-store'
 
 export function MergeButton({
   onMerged,
@@ -11,25 +12,28 @@ export function MergeButton({
   targetNodeId: string
 }) {
   const api = useApi()
-  const [busy, setBusy] = useState(false)
+  const mergeState = useWorkbench((s) => s.mergeStateByNodeId[sourceNodeId])
+  const setMergeState = useWorkbench((s) => s.setMergeState)
   const [error, setError] = useState<string | null>(null)
-  const [merged, setMerged] = useState(false)
 
-  if (merged) return <span className="merge-toast" role="status">已合并</span>
+  if (mergeState === 'merged') return <span className="merge-toast" role="status">已合并</span>
+  const busy = mergeState === 'merging'
   return (
     <div className="merge-action">
       <button
         disabled={busy}
         onClick={() => {
-          setBusy(true)
+          setMergeState(sourceNodeId, 'merging')
           setError(null)
           void api.merge(sourceNodeId, targetNodeId)
             .then(() => {
-              setMerged(true)
+              setMergeState(sourceNodeId, 'merged')
               onMerged?.()
             })
-            .catch(() => setError('合并失败，子分支仍完整保留。'))
-            .finally(() => setBusy(false))
+            .catch(() => {
+              setMergeState(sourceNodeId, null)
+              setError('合并失败，子分支仍完整保留。')
+            })
         }}
         type="button"
       >
