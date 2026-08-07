@@ -41,6 +41,7 @@ export function computeNodePath(
 interface WorkbenchData {
   activeSubdocId: string | null
   backStack: string[]
+  focusedAnnotationId: string | null
   focusMode: boolean
   forwardStack: string[]
   mainNodeId: string | null
@@ -71,6 +72,7 @@ export interface WorkbenchState extends WorkbenchData {
   promoteSubdoc(nodeId: string): void
   reset(): void
   setActiveSubdoc(nodeId: string): void
+  setFocusedAnnotation(id: string | null): void
   setMain(nodeId: string): void
   setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
   setRouteState(nodeId: string, route: RouteConvergence): void
@@ -89,6 +91,7 @@ function initialData(): WorkbenchData {
   return {
     activeSubdocId: null,
     backStack: [],
+    focusedAnnotationId: null,
     focusMode: false,
     forwardStack: [],
     mainNodeId: null,
@@ -190,6 +193,9 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   },
   setActiveSubdoc(nodeId) {
     if (state.subdocTabs.includes(nodeId)) patch({ activeSubdocId: nodeId })
+  },
+  setFocusedAnnotation(id) {
+    patch({ focusedAnnotationId: id })
   },
   setMain(nodeId) {
     const node = state.nodesById[nodeId]

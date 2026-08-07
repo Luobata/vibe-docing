@@ -75,6 +75,19 @@ export function createApi(options?: {
   }
 
   return {
+    createNote: (
+      nodeId: string,
+      body: {
+        anchorFrom: number | null
+        anchorTo: number | null
+        quotedText: string | null
+        note: string
+      },
+    ) =>
+      json<{ annotation: AnnotationRow }>(`/nodes/${nodeId}/annotation`, {
+        body: JSON.stringify(body),
+        method: 'POST',
+      }),
     createTree: (title: string) =>
       json<{ rootNode: NodeRow; tree: TreeRow }>('/trees', {
         body: JSON.stringify({ title }),

@@ -112,4 +112,11 @@ describe('workbench store', () => {
     store.setMergeState('node-a', null)
     expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBeUndefined()
   })
+
+  it('tracks focused annotation for note jump', () => {
+    useWorkbench.getState().setFocusedAnnotation('ann-1')
+    expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-1')
+    useWorkbench.getState().setFocusedAnnotation(null)
+    expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
+  })
 })
