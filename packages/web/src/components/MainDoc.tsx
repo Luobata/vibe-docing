@@ -1,6 +1,7 @@
 import {
   plainTextToProseMirror,
   type AnnotationRow,
+  type ContextSegmentRow,
   type NodeRow,
 } from '@vibe/shared'
 import { useEffect, useRef, useState } from 'react'
@@ -13,6 +14,7 @@ import { AnnotationBubble } from './AnnotationBubble'
 import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
+import { MergedConclusions } from './MergedConclusions'
 
 interface Turn {
   answer: NodeRow
@@ -38,6 +40,7 @@ export function MainDoc() {
   const treeId = useWorkbench((state) => state.treeId)
   const upsertNode = useWorkbench((state) => state.upsertNode)
   const [annotations, setAnnotations] = useState<AnnotationRow[]>([])
+  const [segments, setSegments] = useState<ContextSegmentRow[]>([])
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<PlainSelection | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +59,7 @@ export function MainDoc() {
   useEffect(() => {
     let active = true
     setAnnotations([])
+    setSegments([])
     setSelection(null)
     setError(null)
     setTranscript([])
@@ -69,6 +73,7 @@ export function MainDoc() {
       .then((result) => {
         if (!active) return
         setAnnotations(result.annotations)
+        setSegments(result.segments)
         upsertNode(result.node)
       })
       .catch(() => {
@@ -273,6 +278,7 @@ export function MainDoc() {
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
         <DocView annotations={annotations} node={node} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
             <p className="turn-question" data-testid="turn-question">{turn.question}</p>
