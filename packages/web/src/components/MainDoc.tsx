@@ -39,6 +39,8 @@ export function MainDoc() {
   const nodesById = useWorkbench((state) => state.nodesById)
   const treeId = useWorkbench((state) => state.treeId)
   const upsertNode = useWorkbench((state) => state.upsertNode)
+  const setNotesForMain = useWorkbench((state) => state.setNotesForMain)
+  const focusedAnnotationId = useWorkbench((state) => state.focusedAnnotationId)
   const [annotations, setAnnotations] = useState<AnnotationRow[]>([])
   const [segments, setSegments] = useState<ContextSegmentRow[]>([])
   const [busy, setBusy] = useState(false)
@@ -59,6 +61,7 @@ export function MainDoc() {
   useEffect(() => {
     let active = true
     setAnnotations([])
+    setNotesForMain([])
     setSegments([])
     setSelection(null)
     setError(null)
@@ -73,6 +76,7 @@ export function MainDoc() {
       .then((result) => {
         if (!active) return
         setAnnotations(result.annotations)
+        setNotesForMain(result.annotations)
         setSegments(result.segments)
         upsertNode(result.node)
       })
@@ -80,7 +84,18 @@ export function MainDoc() {
         if (active) setError('无法刷新文档详情，正在显示本地内容。')
       })
     return () => { active = false }
-  }, [api, mainNodeId, upsertNode])
+  }, [api, mainNodeId, setNotesForMain, upsertNode])
+
+  useEffect(() => {
+    if (!focusedAnnotationId) return
+    const el = scrollRef.current?.querySelector(`[data-ann-id="${focusedAnnotationId}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ann-flash')
+      const t = setTimeout(() => el.classList.remove('ann-flash'), 1200)
+      return () => clearTimeout(t)
+    }
+  }, [focusedAnnotationId])
 
   if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入标题并新建一棵树，选中节点后即可在下方对话生成内容</div>
   const node = nodesById[mainNodeId]
@@ -293,7 +308,18 @@ export function MainDoc() {
         ))}
         {selection && (
           <AnnotationBubble
-            onCreateNote={() => setSelection(null)}
+            onCreateNote={(noteText) => {
+              if (!selection) { setSelection(null); return }
+              void api.createNote(node.id, {
+                anchorFrom: selection.from, anchorTo: selection.to,
+                quotedText: selection.text, note: noteText,
+              }).then((res) => {
+                setAnnotations((cur) => [...cur, res.annotation])
+                const add = useWorkbench.getState().setNotesForMain
+                add([...useWorkbench.getState().notesForMain, res.annotation])
+              }).catch(() => setError('笔记保存失败，请重试。'))
+              setSelection(null)
+            }}
             onDismiss={() => setSelection(null)}
             onForkExpand={(question) => { void forkExpand(question) }}
             selection={selection}

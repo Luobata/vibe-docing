@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
 import { MainDoc } from './MainDoc'
-import { SubdocTabs } from './SubdocTabs'
+import { SubdocPanelTabs } from './SubdocPanelTabs'
 import { TrashPanel } from './TrashPanel'
 import { TreePanel } from './TreePanel'
 import { TreeLauncher } from './TreeLauncher'
@@ -22,6 +22,7 @@ export function Workbench() {
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
+  const notesForMain = useWorkbench((state) => state.notesForMain)
   const toast = useWorkbench((state) => state.toast)
   const treeId = useWorkbench((state) => state.treeId)
   const [showTrash, setShowTrash] = useState(false)
@@ -94,7 +95,7 @@ export function Workbench() {
             <h2>派生分支</h2>
           </div>
         </header>
-        <SubdocTabs />
+        <SubdocPanelTabs annotations={notesForMain} />
       </section>
       {toast && <div role="status">{toast}</div>}
     </div>

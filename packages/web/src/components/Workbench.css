@@ -134,6 +134,7 @@ button { font: inherit; }
 .doc-view-shell { margin-top: 24px; }
 .doc-view { min-height: 96px; color: #322f29; font-family: var(--font-serif); font-size: 17px; line-height: 1.8; }
 .doc-view mark { padding: 1px 2px; color: inherit; background: #f1cf79; border-radius: 3px; }
+.ann-flash { outline: 2px solid #d6a84e; }
 .doc-body > :first-child { margin-top: 0; }
 .doc-body > :last-child { margin-bottom: 0; }
 .doc-body h1, .doc-body h2, .doc-body h3, .doc-body h4 { margin: 1.3em 0 .5em; font-family: var(--font-serif); line-height: 1.35; color: #211f1b; }

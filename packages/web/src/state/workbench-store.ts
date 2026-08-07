@@ -1,4 +1,4 @@
-import type { NodeRow, NodeVersionRow } from '@vibe/shared'
+import type { AnnotationRow, NodeRow, NodeVersionRow } from '@vibe/shared'
 import { useSyncExternalStore } from 'react'
 import type { RouteConvergence } from '../api/types'
 
@@ -48,6 +48,7 @@ interface WorkbenchData {
   mainPath: string[]
   mergeStateByNodeId: Record<string, 'merging' | 'merged'>
   nodesById: Record<string, NodeRow>
+  notesForMain: AnnotationRow[]
   panelRoles: typeof WORKBENCH_PANEL_ROLES
   rootNodeId: string | null
   routeByNodeId: Record<string, RouteConvergence>
@@ -75,6 +76,7 @@ export interface WorkbenchState extends WorkbenchData {
   setFocusedAnnotation(id: string | null): void
   setMain(nodeId: string): void
   setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
+  setNotesForMain(rows: AnnotationRow[]): void
   setRouteState(nodeId: string, route: RouteConvergence): void
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string): void
@@ -98,6 +100,7 @@ function initialData(): WorkbenchData {
     mainPath: [],
     mergeStateByNodeId: {},
     nodesById: {},
+    notesForMain: [],
     panelRoles: WORKBENCH_PANEL_ROLES,
     rootNodeId: null,
     routeByNodeId: {},
@@ -213,6 +216,9 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
     if (mergeState === null) delete next[nodeId]
     else next[nodeId] = mergeState
     patch({ mergeStateByNodeId: next })
+  },
+  setNotesForMain(rows) {
+    patch({ notesForMain: [...rows] })
   },
   setRouteState(nodeId, route) {
     patch({ routeByNodeId: { ...state.routeByNodeId, [nodeId]: route } })
