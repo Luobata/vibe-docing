@@ -1,6 +1,7 @@
 import type { NodeRow } from '@vibe/shared'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
 import { TreePanel } from './TreePanel'
@@ -50,5 +51,58 @@ describe('tree and breadcrumb navigation', () => {
     expect(useWorkbench.getState().mainNodeId).toBe('a')
     fireEvent.click(screen.getByRole('button', { name: '前进' }))
     expect(useWorkbench.getState().mainNodeId).toBe('root')
+  })
+})
+
+describe('tree node deletion', () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  beforeEach(() => {
+    confirmSpy.mockReset()
+    useWorkbench.getState().reset()
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, null), node('a', 'root', '缓存问题'), node('b', 'a', '子问题')],
+      rootNodeId: 'root',
+      treeId: 't',
+    })
+  })
+  afterEach(() => useWorkbench.getState().reset())
+
+  it('has no delete control on the root node', () => {
+    const api = { deleteNode: vi.fn(), getNode: vi.fn(() => new Promise(() => {})) }
+    render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
+    // root ('根') has no delete button next to it
+    expect(screen.queryByRole('button', { name: '删除“根”' })).toBeNull()
+  })
+
+  it('deletes a non-root subtree after confirming the cascade count, then offers undo', async () => {
+    confirmSpy.mockReturnValue(true)
+    const restoreNode = vi.fn(async () => ({ ok: true }))
+    const api = {
+      deleteNode: vi.fn(async () => ({ ok: true })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      restoreNode,
+    }
+    render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
+
+    // delete node 'a' (which has 1 child 'b') → confirm mentions 2 nodes
+    fireEvent.click(screen.getByRole('button', { name: '删除“缓存问题”' }))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('2'))
+    await waitFor(() => expect(api.deleteNode).toHaveBeenCalledWith('a'))
+    // subtree gone from the tree view
+    await waitFor(() => expect(screen.queryByRole('button', { name: '缓存问题' })).toBeNull())
+
+    // an undo affordance appears; clicking it restores
+    fireEvent.click(await screen.findByRole('button', { name: '撤销' }))
+    await waitFor(() => expect(restoreNode).toHaveBeenCalledWith('a'))
+    expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
+  })
+
+  it('does not delete when the confirm is cancelled', () => {
+    confirmSpy.mockReturnValue(false)
+    const api = { deleteNode: vi.fn(), getNode: vi.fn(() => new Promise(() => {})) }
+    render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
+    fireEvent.click(screen.getByRole('button', { name: '删除“缓存问题”' }))
+    expect(api.deleteNode).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
   })
 })

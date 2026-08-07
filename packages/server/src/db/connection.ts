@@ -15,10 +15,21 @@ export function openDb(path: string): Db {
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     db.exec(schema)
+    migrate(db)
     return db
   } catch (error) {
     db.close()
     throw error
+  }
+}
+
+// Idempotent migrations for databases created before a column existed.
+// `CREATE TABLE IF NOT EXISTS` is a no-op on an existing table, so new columns
+// must be added explicitly.
+function migrate(db: Db): void {
+  const treeColumns = db.prepare('PRAGMA table_info(trees)').all() as Array<{ name: string }>
+  if (!treeColumns.some((column) => column.name === 'is_deleted')) {
+    db.exec('ALTER TABLE trees ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')
   }
 }
 

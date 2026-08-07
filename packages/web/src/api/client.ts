@@ -82,6 +82,8 @@ export function createApi(options?: {
       }),
     deleteNode: (nodeId: string) =>
       json<{ ok: true }>(`/nodes/${nodeId}`, { method: 'DELETE' }),
+    deleteTree: (treeId: string) =>
+      json<{ ok: true }>(`/trees/${treeId}`, { method: 'DELETE' }),
     diffVersions: (nodeId: string, from: number, to: number) =>
       json<{ diff: unknown }>(`/nodes/${nodeId}/versions/${from}/diff/${to}`),
     editNode: (
@@ -121,6 +123,11 @@ export function createApi(options?: {
     getTree: (treeId: string) =>
       json<{ nodes: NodeRow[]; tree: TreeRow }>(`/trees/${treeId}`),
     listTrees: () => json<{ trees: TreeRow[] }>('/trees'),
+    renameTree: (treeId: string, title: string) =>
+      json<{ tree: TreeRow }>(`/trees/${treeId}`, {
+        body: JSON.stringify({ title }),
+        method: 'PATCH',
+      }),
     listVersions: (nodeId: string) =>
       json<{ versions: NodeVersionRow[] }>(`/nodes/${nodeId}/versions`),
     merge: (sourceNodeId: string, targetNodeId: string) =>

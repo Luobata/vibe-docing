@@ -72,6 +72,7 @@ export interface WorkbenchState extends WorkbenchData {
   setActiveSubdoc(nodeId: string): void
   setMain(nodeId: string): void
   setRouteState(nodeId: string, route: RouteConvergence): void
+  setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string): void
   setTrash(nodes: NodeRow[]): void
   setVersions(nodeId: string, versions: NodeVersionRow[]): void
@@ -200,6 +201,36 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   },
   setRouteState(nodeId, route) {
     patch({ routeByNodeId: { ...state.routeByNodeId, [nodeId]: route } })
+  },
+  setSubtreeDeleted(nodeId, deleted) {
+    const flag: 0 | 1 = deleted ? 1 : 0
+    const ids = new Set<string>()
+    const stack = [nodeId]
+    while (stack.length) {
+      const current = stack.pop()!
+      if (ids.has(current)) continue
+      ids.add(current)
+      for (const child of Object.values(state.nodesById)) {
+        if (child.parent_id === current) stack.push(child.id)
+      }
+    }
+    const nodesById = { ...state.nodesById }
+    for (const id of ids) {
+      if (nodesById[id]) nodesById[id] = { ...nodesById[id], is_deleted: flag }
+    }
+    const patchData: Partial<WorkbenchData> = { nodesById }
+    // If the current main document was deleted, fall back to its parent.
+    if (deleted && state.mainNodeId && ids.has(state.mainNodeId)) {
+      const parentId = state.nodesById[state.mainNodeId]?.parent_id
+      if (parentId && nodesById[parentId]) {
+        patchData.mainNodeId = parentId
+        patchData.mainPath = computeNodePath(nodesById, parentId)
+      }
+    }
+    if (state.mainNodeId && !ids.has(state.mainNodeId)) {
+      patchData.subdocTabs = computeChildTabs(nodesById, state.mainNodeId)
+    }
+    patch(patchData)
   },
   setToast(message) {
     patch({ toast: message })

@@ -59,4 +59,34 @@ describe('tree and node routes', () => {
       .toBe(404)
     await app.close()
   })
+
+  it('soft-deletes a tree so it drops out of the list and 404s', async () => {
+    const { app } = setup()
+    const created = await app.inject({ method: 'POST', payload: { title: '待删' }, url: '/api/trees' })
+    const { tree } = created.json<{ tree: { id: string } }>()
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/trees/${tree.id}` })
+    expect(del.statusCode).toBe(200)
+    expect((await app.inject({ method: 'GET', url: '/api/trees' })).json<{ trees: unknown[] }>().trees)
+      .toHaveLength(0)
+    expect((await app.inject({ method: 'GET', url: `/api/trees/${tree.id}` })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'DELETE', url: '/api/trees/missing' })).statusCode).toBe(404)
+    await app.close()
+  })
+
+  it('renames a tree and rejects an empty title', async () => {
+    const { app } = setup()
+    const created = await app.inject({ method: 'POST', payload: { title: '旧' }, url: '/api/trees' })
+    const { tree } = created.json<{ tree: { id: string } }>()
+
+    const renamed = await app.inject({ method: 'PATCH', payload: { title: '新标题' }, url: `/api/trees/${tree.id}` })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json<{ tree: { title: string } }>().tree.title).toBe('新标题')
+    expect((await app.inject({ method: 'GET', url: `/api/trees/${tree.id}` })).json<{ tree: { title: string } }>().tree.title)
+      .toBe('新标题')
+
+    expect((await app.inject({ method: 'PATCH', payload: { title: '  ' }, url: `/api/trees/${tree.id}` })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PATCH', payload: { title: 'x' }, url: '/api/trees/missing' })).statusCode).toBe(404)
+    await app.close()
+  })
 })

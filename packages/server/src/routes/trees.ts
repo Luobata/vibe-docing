@@ -18,6 +18,25 @@ export function registerTreeRoutes(app: DecoratedApp): void {
 
   app.get('/api/trees', async () => ({ trees: app.deps.trees.list() }))
 
+  app.patch('/api/trees/:id', async (request, reply) => {
+    const title = objectBody(request.body)?.title
+    if (typeof title !== 'string' || !title.trim()) {
+      return reply.code(400).send({ error: 'invalid title' })
+    }
+    if (!app.deps.trees.get(request.params.id)) {
+      return reply.code(404).send({ error: 'tree not found' })
+    }
+    return { tree: app.deps.trees.rename(request.params.id, title.trim()) }
+  })
+
+  app.delete('/api/trees/:id', async (request, reply) => {
+    if (!app.deps.trees.get(request.params.id)) {
+      return reply.code(404).send({ error: 'tree not found' })
+    }
+    app.deps.trees.softDelete(request.params.id)
+    return { ok: true }
+  })
+
   app.get('/api/trees/:id', async (request, reply) => {
     const tree = app.deps.trees.get(request.params.id)
     if (!tree) return reply.code(404).send({ error: 'tree not found' })

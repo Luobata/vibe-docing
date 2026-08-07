@@ -5,7 +5,7 @@ import { newId } from '../util/ids'
 
 export function createTreeRepo(db: Db, clock: Clock) {
   function get(id: string): TreeRow | undefined {
-    return db.prepare('SELECT * FROM trees WHERE id = ?').get(id) as
+    return db.prepare('SELECT * FROM trees WHERE id = ? AND is_deleted = 0').get(id) as
       | TreeRow
       | undefined
   }
@@ -46,9 +46,20 @@ export function createTreeRepo(db: Db, clock: Clock) {
 
   function list(): TreeRow[] {
     return db
-      .prepare('SELECT * FROM trees ORDER BY updated_at DESC, id ASC')
+      .prepare('SELECT * FROM trees WHERE is_deleted = 0 ORDER BY updated_at DESC, id ASC')
       .all() as TreeRow[]
   }
 
-  return { create, get, list }
+  function softDelete(id: string): void {
+    db.prepare('UPDATE trees SET is_deleted = 1, updated_at = ? WHERE id = ?')
+      .run(clock.now(), id)
+  }
+
+  function rename(id: string, title: string): TreeRow | undefined {
+    db.prepare('UPDATE trees SET title = ?, updated_at = ? WHERE id = ? AND is_deleted = 0')
+      .run(title, clock.now(), id)
+    return get(id)
+  }
+
+  return { create, get, list, rename, softDelete }
 }

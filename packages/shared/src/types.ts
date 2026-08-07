@@ -26,6 +26,7 @@ export interface TreeRow {
   id: string
   title: string
   root_node_id: string | null
+  is_deleted: 0 | 1
   created_at: string
   updated_at: string
 }

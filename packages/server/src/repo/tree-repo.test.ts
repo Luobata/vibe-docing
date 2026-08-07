@@ -54,4 +54,29 @@ describe('TreeRepo', () => {
 
     expect(repo.get('missing')).toBeUndefined()
   })
+
+  it('soft-deletes a tree so it no longer appears in the list', () => {
+    const db = openMemoryDb()
+    openDatabases.push(db)
+    const repo = createTreeRepo(db, fixedClock('2026-08-05T00:00:00.000Z'))
+
+    const { tree } = repo.create('待删除')
+    repo.create('保留')
+    repo.softDelete(tree.id)
+
+    expect(repo.list().map((t) => t.title)).toEqual(['保留'])
+    expect(repo.get(tree.id)).toBeUndefined()
+  })
+
+  it('renames a tree title', () => {
+    const db = openMemoryDb()
+    openDatabases.push(db)
+    const repo = createTreeRepo(db, fixedClock('2026-08-05T00:00:00.000Z'))
+
+    const { tree } = repo.create('旧标题')
+    const renamed = repo.rename(tree.id, '新标题')
+
+    expect(renamed?.title).toBe('新标题')
+    expect(repo.get(tree.id)?.title).toBe('新标题')
+  })
 })
