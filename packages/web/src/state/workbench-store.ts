@@ -45,6 +45,7 @@ interface WorkbenchData {
   forwardStack: string[]
   mainNodeId: string | null
   mainPath: string[]
+  mergeStateByNodeId: Record<string, 'merging' | 'merged'>
   nodesById: Record<string, NodeRow>
   panelRoles: typeof WORKBENCH_PANEL_ROLES
   rootNodeId: string | null
@@ -71,6 +72,7 @@ export interface WorkbenchState extends WorkbenchData {
   reset(): void
   setActiveSubdoc(nodeId: string): void
   setMain(nodeId: string): void
+  setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
   setRouteState(nodeId: string, route: RouteConvergence): void
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string): void
@@ -91,6 +93,7 @@ function initialData(): WorkbenchData {
     forwardStack: [],
     mainNodeId: null,
     mainPath: [],
+    mergeStateByNodeId: {},
     nodesById: {},
     panelRoles: WORKBENCH_PANEL_ROLES,
     rootNodeId: null,
@@ -198,6 +201,12 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
         : state.backStack,
       forwardStack: [],
     })
+  },
+  setMergeState(nodeId, mergeState) {
+    const next = { ...state.mergeStateByNodeId }
+    if (mergeState === null) delete next[nodeId]
+    else next[nodeId] = mergeState
+    patch({ mergeStateByNodeId: next })
   },
   setRouteState(nodeId, route) {
     patch({ routeByNodeId: { ...state.routeByNodeId, [nodeId]: route } })

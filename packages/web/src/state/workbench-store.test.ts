@@ -102,4 +102,14 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().focusMode).toBe(true)
     expect(useWorkbench.getState().mainNodeId).toBe(root.id)
   })
+
+  it('persists per-node merge state across reads', () => {
+    const store = useWorkbench.getState()
+    store.setMergeState('node-a', 'merging')
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBe('merging')
+    store.setMergeState('node-a', 'merged')
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBe('merged')
+    store.setMergeState('node-a', null)
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBeUndefined()
+  })
 })
