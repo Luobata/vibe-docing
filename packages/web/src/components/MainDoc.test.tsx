@@ -48,12 +48,13 @@ describe('MainDoc fork flow', () => {
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
     const view = screen.getByTestId('doc-view')
+    const body = view.querySelector('.doc-body')!
     const range = document.createRange()
-    range.selectNodeContents(view)
+    range.selectNodeContents(body)
     const selection = window.getSelection()!
     selection.removeAllRanges()
     selection.addRange(range)
-    fireEvent.mouseUp(view)
+    fireEvent.mouseUp(body)
     fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '深入' } })
     fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
 
@@ -95,12 +96,13 @@ describe('MainDoc fork flow', () => {
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
     const view = screen.getByTestId('doc-view')
+    const body = view.querySelector('.doc-body')!
     const range = document.createRange()
-    range.selectNodeContents(view)
+    range.selectNodeContents(body)
     const selection = window.getSelection()!
     selection.removeAllRanges()
     selection.addRange(range)
-    fireEvent.mouseUp(view)
+    fireEvent.mouseUp(body)
     fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '深入' } })
     fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
 

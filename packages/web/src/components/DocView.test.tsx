@@ -25,12 +25,28 @@ function annotation(): AnnotationRow {
 }
 
 describe('DocView', () => {
-  it('renders ProseMirror text, preserves line breaks, and marks annotations', () => {
+  it('renders markdown content and marks annotations', () => {
     render(<DocView annotations={[annotation()]} node={node()} onRetry={() => {}} onSelect={() => {}} />)
 
-    expect(screen.getByTestId('doc-view')).toHaveTextContent('第一段 第二段')
-    expect(screen.getByTestId('doc-view')).toHaveStyle({ whiteSpace: 'pre-wrap' })
+    expect(screen.getByTestId('doc-view')).toHaveTextContent('第一段')
+    expect(screen.getByTestId('doc-view')).toHaveTextContent('第二段')
     expect(screen.getByText('第一段').closest('mark')).toHaveAttribute('data-ann-id', 'ann-1')
+  })
+
+  it('renders markdown structure (headings and bold)', () => {
+    const md: NodeRow = {
+      ...node(),
+      ai_response: JSON.stringify({
+        content: [
+          { content: [{ text: '### 小标题', type: 'text' }], type: 'paragraph' },
+          { content: [{ text: '**重点** 内容', type: 'text' }], type: 'paragraph' },
+        ],
+        type: 'doc',
+      }),
+    }
+    const { container } = render(<DocView annotations={[]} node={md} onRetry={() => {}} onSelect={() => {}} />)
+    expect(container.querySelector('h3')?.textContent).toBe('小标题')
+    expect(container.querySelector('strong')?.textContent).toBe('重点')
   })
 
   it('shows streaming and retry states', () => {

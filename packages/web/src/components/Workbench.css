@@ -129,6 +129,27 @@ button { font: inherit; }
 .doc-view-shell { margin-top: 24px; }
 .doc-view { min-height: 96px; color: #322f29; font-family: Georgia, "Songti SC", serif; font-size: 17px; line-height: 1.8; }
 .doc-view mark { padding: 1px 2px; color: inherit; background: #f1cf79; border-radius: 3px; }
+.doc-body > :first-child { margin-top: 0; }
+.doc-body > :last-child { margin-bottom: 0; }
+.doc-body h1, .doc-body h2, .doc-body h3, .doc-body h4 { margin: 1.3em 0 .5em; font-family: Georgia, "Songti SC", serif; line-height: 1.35; color: #211f1b; }
+.doc-body h1 { font-size: 1.5em; }
+.doc-body h2 { font-size: 1.32em; }
+.doc-body h3 { font-size: 1.16em; }
+.doc-body h4 { font-size: 1.04em; color: #4a453d; }
+.doc-body p { margin: .7em 0; }
+.doc-body ul, .doc-body ol { margin: .6em 0; padding-left: 1.5em; }
+.doc-body li { margin: .25em 0; }
+.doc-body li > ul, .doc-body li > ol { margin: .2em 0; }
+.doc-body strong { color: #211f1b; }
+.doc-body a { color: #2f5b4b; text-decoration: underline; }
+.doc-body blockquote { margin: .8em 0; padding: .2em 0 .2em 14px; color: #5b554c; border-left: 3px solid #d6a84e; }
+.doc-body hr { margin: 1.4em 0; border: 0; border-top: 1px solid #ded8cd; }
+.doc-body code { padding: .1em .4em; font-family: "SF Mono", Menlo, monospace; font-size: .88em; background: #efe8d8; border-radius: 4px; }
+.doc-body pre { margin: .9em 0; padding: 13px 15px; overflow-x: auto; background: #2b2a26; border-radius: 10px; }
+.doc-body pre code { padding: 0; color: #f3f0e8; background: transparent; font-size: .86em; }
+.doc-body table { margin: .9em 0; border-collapse: collapse; font-size: .94em; }
+.doc-body th, .doc-body td { padding: 7px 12px; border: 1px solid #d0c8b9; text-align: left; }
+.doc-body th { background: #efe8d8; font-weight: 600; }
 .streaming-cursor { display: inline-block; margin-left: 2px; color: #b44d2d; animation: cursor-pulse .85s steps(1) infinite; }
 .thinking-hint { margin-left: 8px; color: #766f64; font-size: 14px; font-style: italic; animation: cursor-pulse 1.2s ease-in-out infinite; }
 .inline-error { margin-top: 14px; padding: 10px 12px; color: #8b2e1f; background: #f8e6df; border-radius: 8px; }
