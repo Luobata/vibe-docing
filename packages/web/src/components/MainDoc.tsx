@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useApi } from '../api/context'
 import type { Api } from '../api/client'
 import type { PlainSelection } from '../doc/selection'
+import { pickAnchorTarget } from '../doc/anchor-target'
 import { useAutoScroll } from '../flow/use-auto-scroll'
 import { useWorkbench } from '../state/workbench-store'
 import { AnnotationBubble } from './AnnotationBubble'
@@ -328,7 +329,13 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
-        <DocView annotations={annotations} node={node} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
+          const target = pickAnchorTarget(annotations, annId)
+          const s = useWorkbench.getState()
+          if (!target) return
+          if (target.kind === 'branch') { s.setSubdocPanelTab('derivations'); s.openSubdocTab(target.childNodeId) }
+          else { s.setSubdocPanelTab('notes'); s.setAnchoredNoteId(target.annotationId) }
+        }} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
         <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
