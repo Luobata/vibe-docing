@@ -19,4 +19,17 @@ describe('SelectionMenu', () => {
     fireEvent.click(backdrop)
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  it('closes on Escape and stops the event from bubbling to global handlers', () => {
+    const onClose = vi.fn()
+    const globalHandler = vi.fn()
+    // Matches Workbench's global listener (document, bubble phase).
+    document.addEventListener('keydown', globalHandler)
+    render(<SelectionMenu onClose={onClose} onPick={() => {}} x={10} y={10} />)
+    // Fire from an element inside the menu, as a real focused target would.
+    fireEvent.keyDown(screen.getByText('笔记'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(globalHandler).not.toHaveBeenCalled()
+    document.removeEventListener('keydown', globalHandler)
+  })
 })

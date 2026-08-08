@@ -44,7 +44,11 @@ export function SubdocTabs() {
           </header>
           <DocView annotations={[]} node={current} onRetry={() => {}} onSelect={() => {}} />
           {current.parent_id && (
-            <MergeButton sourceNodeId={current.id} targetNodeId={current.parent_id} />
+            <MergeButton
+              onMerged={() => useWorkbench.getState().bumpMergeRefresh()}
+              sourceNodeId={current.id}
+              targetNodeId={current.parent_id}
+            />
           )}
         </article>
       )}

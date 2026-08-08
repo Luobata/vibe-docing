@@ -120,6 +120,14 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
   })
 
+  it('bumps the merge refresh tick so listeners can re-fetch', () => {
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(0)
+    useWorkbench.getState().bumpMergeRefresh()
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(1)
+    useWorkbench.getState().bumpMergeRefresh()
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(2)
+  })
+
   it('replaces notesForMain with the provided rows', () => {
     const note = (id: string): AnnotationRow => ({
       anchor_from: 0,

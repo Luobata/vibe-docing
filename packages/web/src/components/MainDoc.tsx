@@ -42,6 +42,7 @@ export function MainDoc() {
   const upsertNode = useWorkbench((state) => state.upsertNode)
   const setNotesForMain = useWorkbench((state) => state.setNotesForMain)
   const focusedAnnotationId = useWorkbench((state) => state.focusedAnnotationId)
+  const mergeRefreshTick = useWorkbench((state) => state.mergeRefreshTick)
   const [annotations, setAnnotations] = useState<AnnotationRow[]>([])
   const [segments, setSegments] = useState<ContextSegmentRow[]>([])
   const [busy, setBusy] = useState(false)
@@ -89,17 +90,24 @@ export function MainDoc() {
         if (active) setError('无法刷新文档详情，正在显示本地内容。')
       })
     return () => { active = false }
-  }, [api, mainNodeId, setNotesForMain, upsertNode])
+  }, [api, mainNodeId, mergeRefreshTick, setNotesForMain, upsertNode])
 
   useEffect(() => {
     if (!focusedAnnotationId) return
     const el = scrollRef.current?.querySelector(`[data-ann-id="${focusedAnnotationId}"]`)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.classList.add('ann-flash')
-      const t = setTimeout(() => el.classList.remove('ann-flash'), 1200)
-      return () => clearTimeout(t)
+    if (!el) {
+      // Nothing to flash — clear so re-selecting the same note later re-triggers.
+      useWorkbench.getState().setFocusedAnnotation(null)
+      return
     }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('ann-flash')
+    const t = setTimeout(() => {
+      el.classList.remove('ann-flash')
+      // Reset after the flash so clicking the SAME note again re-jumps.
+      useWorkbench.getState().setFocusedAnnotation(null)
+    }, 1200)
+    return () => clearTimeout(t)
   }, [focusedAnnotationId])
 
   if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入标题并新建一棵树，选中节点后即可在下方对话生成内容</div>

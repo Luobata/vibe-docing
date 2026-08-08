@@ -80,7 +80,13 @@ button { font: inherit; color: inherit; }
 }
 
 .workbench[data-focus='true'] {
-  grid-template-columns: minmax(420px, 1.45fr) minmax(340px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+/* 聚焦模式下，折叠的侧栏在淡出后彻底移出网格轨道，主文档独占整宽。
+   .tree-panel/.subdoc-panel 的 width/opacity 过渡负责视觉折叠，
+   display:none 落在聚焦终态以保证不再占用列宽（不留空槽）。 */
+.workbench[data-focus='true'] .is-collapsed {
+  display: none;
 }
 
 .col-resizer {

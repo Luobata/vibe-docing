@@ -120,7 +120,6 @@ export function Workbench() {
         <header className="panel-header">
           <div>
             <span className="eyebrow">子文档</span>
-            <h2>派生分支</h2>
           </div>
         </header>
         <SubdocPanelTabs annotations={notesForMain} />

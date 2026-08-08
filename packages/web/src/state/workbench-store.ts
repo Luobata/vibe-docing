@@ -46,6 +46,7 @@ interface WorkbenchData {
   forwardStack: string[]
   mainNodeId: string | null
   mainPath: string[]
+  mergeRefreshTick: number
   mergeStateByNodeId: Record<string, 'merging' | 'merged'>
   nodesById: Record<string, NodeRow>
   notesForMain: AnnotationRow[]
@@ -60,6 +61,7 @@ interface WorkbenchData {
 }
 
 export interface WorkbenchState extends WorkbenchData {
+  bumpMergeRefresh(): void
   clearToast(): void
   exitFocus(): void
   goBack(): void
@@ -98,6 +100,7 @@ function initialData(): WorkbenchData {
     forwardStack: [],
     mainNodeId: null,
     mainPath: [],
+    mergeRefreshTick: 0,
     mergeStateByNodeId: {},
     nodesById: {},
     notesForMain: [],
@@ -141,6 +144,9 @@ function viewFor(
 }
 
 const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
+  bumpMergeRefresh() {
+    patch({ mergeRefreshTick: state.mergeRefreshTick + 1 })
+  },
   clearToast() {
     patch({ toast: null })
   },
