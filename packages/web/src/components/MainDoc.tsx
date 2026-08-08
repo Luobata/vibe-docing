@@ -90,7 +90,29 @@ export function MainDoc() {
         if (active) setError('无法刷新文档详情，正在显示本地内容。')
       })
     return () => { active = false }
-  }, [api, mainNodeId, mergeRefreshTick, setNotesForMain, upsertNode])
+  }, [api, mainNodeId, setNotesForMain, upsertNode])
+
+  // A merge only changes the parent's 合并结论 segments (and annotations); it must
+  // NOT wipe the active Q&A transcript/selection. Re-fetch segments only, and skip
+  // the initial mount so the ref guard fires solely on an actual tick bump.
+  const mergeTickRef = useRef(mergeRefreshTick)
+  useEffect(() => {
+    if (mergeTickRef.current === mergeRefreshTick) return
+    mergeTickRef.current = mergeRefreshTick
+    if (!mainNodeId) return
+    const getNode = (api as Partial<Api>).getNode
+    if (!getNode) return
+    let active = true
+    void getNode(mainNodeId)
+      .then((result) => {
+        if (!active) return
+        setSegments(result.segments)
+        setAnnotations(result.annotations)
+        setNotesForMain(result.annotations)
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [mergeRefreshTick, mainNodeId, api, setNotesForMain])
 
   useEffect(() => {
     if (!focusedAnnotationId) return
