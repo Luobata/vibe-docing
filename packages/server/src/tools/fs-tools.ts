@@ -119,6 +119,13 @@ export function grep(root: string, args: { pattern: string; path?: string }): st
     let truncated = false
     for (const rel of files) {
       if (isExcluded(rel)) continue
+      try {
+        // Mirror read_file/read_lines: skip oversize files so a multi-GB file
+        // cannot be loaded into a single string (model-driven OOM guard).
+        if (statSync(resolve(base, rel)).size > MAX_FILE_BYTES) continue
+      } catch {
+        continue
+      }
       let content: string
       try {
         content = readFileSync(resolve(base, rel), 'utf8')
@@ -146,7 +153,7 @@ export function grep(root: string, args: { pattern: string; path?: string }): st
 }
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  return s.replace(/[.+^${}()|[\]\\?]/g, '\\$&')
 }
 
 /** Convert a glob (`**`→`.*`, `*`→`[^/]*`) to an anchored full-match regex. */

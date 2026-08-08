@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -17,6 +17,9 @@ import {
 } from './fs-tools'
 
 let root: string
+let outsideDir: string
+const OUTSIDE_SECRET = 'OUTSIDE_TOP_SECRET_VALUE'
+let symlinksCreated = false
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'fstool-'))
@@ -30,10 +33,27 @@ beforeAll(() => {
   writeFileSync(join(root, '.secret'), 'hidden')
   writeFileSync(join(root, 'big.txt'), 'a'.repeat(MAX_FILE_BYTES + 10000))
   writeFileSync(join(root, 'lines.txt'), 'L1\nL2\nL3\nL4\nL5')
+  // > MAX_GREP_HITS matching lines for the truncation regression test.
+  const manyLines = Array.from({ length: MAX_GREP_HITS + 50 }, () => 'GREPME token').join('\n')
+  writeFileSync(join(root, 'many.txt'), manyLines)
+
+  // An OUTSIDE dir (with a secret) plus in-root symlinks pointing at it, to
+  // prove the security boundary rejects/skips symlink escapes.
+  outsideDir = mkdtempSync(join(tmpdir(), 'fstool-outside-'))
+  writeFileSync(join(outsideDir, 'passwd'), OUTSIDE_SECRET)
+  try {
+    symlinkSync(outsideDir, join(root, 'evil-link'), 'dir')
+    symlinkSync(join(outsideDir, 'passwd'), join(root, 'passwd-link'), 'file')
+    symlinksCreated = true
+  } catch {
+    // Some environments lack symlink permissions; skip those tests gracefully.
+    symlinksCreated = false
+  }
 })
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
+  if (outsideDir) rmSync(outsideDir, { recursive: true, force: true })
 })
 
 describe('constants', () => {
@@ -126,6 +146,15 @@ describe('grep', () => {
   it('returns empty string when nothing matches', () => {
     expect(grep(root, { pattern: 'zzz-no-match-zzz' })).toBe('')
   })
+
+  it('truncates at MAX_GREP_HITS matches', () => {
+    const out = grep(root, { pattern: 'GREPME' })
+    const lines = out.split('\n')
+    // 200 hit lines + 1 truncation marker line.
+    const hitLines = lines.filter((l) => l.includes('GREPME'))
+    expect(hitLines).toHaveLength(MAX_GREP_HITS)
+    expect(out).toContain('（已截断')
+  })
 })
 
 describe('findFiles', () => {
@@ -180,5 +209,21 @@ describe('dispatchTool', () => {
 
   it('reports path escapes as boundary errors', () => {
     expect(dispatchTool(root, 'read_file', '{"path":"../../../etc/passwd"}')).toBe('错误：路径越界')
+  })
+})
+
+describe('symlink escape (security invariant)', () => {
+  it('rejects reading a symlinked file that points outside root', () => {
+    if (!symlinksCreated) return
+    expect(dispatchTool(root, 'read_file', '{"path":"passwd-link"}')).toBe('错误：路径越界')
+  })
+
+  it('does not surface outside secret content via listDir/findFiles/grep', () => {
+    if (!symlinksCreated) return
+    // The symlinked dir/file are skipped by the walk; the secret never appears.
+    expect(listDir(root, {})).not.toContain(OUTSIDE_SECRET)
+    expect(findFiles(root, { glob: '**/*' })).not.toContain(OUTSIDE_SECRET)
+    expect(grep(root, { pattern: OUTSIDE_SECRET })).not.toContain(OUTSIDE_SECRET)
+    expect(grep(root, { pattern: 'OUTSIDE' })).toBe('')
   })
 })
