@@ -1,6 +1,7 @@
 import {
   plainTextToProseMirror,
   type AnnotationRow,
+  type ContextSegmentRow,
   type NodeRow,
 } from '@vibe/shared'
 import { useEffect, useRef, useState } from 'react'
@@ -13,6 +14,8 @@ import { AnnotationBubble } from './AnnotationBubble'
 import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
+import { MergedConclusions } from './MergedConclusions'
+import { SelectionMenu } from './SelectionMenu'
 
 interface Turn {
   answer: NodeRow
@@ -37,9 +40,15 @@ export function MainDoc() {
   const nodesById = useWorkbench((state) => state.nodesById)
   const treeId = useWorkbench((state) => state.treeId)
   const upsertNode = useWorkbench((state) => state.upsertNode)
+  const setNotesForMain = useWorkbench((state) => state.setNotesForMain)
+  const focusedAnnotationId = useWorkbench((state) => state.focusedAnnotationId)
+  const mergeRefreshTick = useWorkbench((state) => state.mergeRefreshTick)
   const [annotations, setAnnotations] = useState<AnnotationRow[]>([])
+  const [segments, setSegments] = useState<ContextSegmentRow[]>([])
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<PlainSelection | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [bubbleMode, setBubbleMode] = useState<'note' | 'expand' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<Turn[]>([])
   const [lastTurnNodeId, setLastTurnNodeId] = useState<string | null>(null)
@@ -56,7 +65,11 @@ export function MainDoc() {
   useEffect(() => {
     let active = true
     setAnnotations([])
+    setNotesForMain([])
+    setSegments([])
     setSelection(null)
+    setMenu(null)
+    setBubbleMode(null)
     setError(null)
     setTranscript([])
     setLastTurnNodeId(null)
@@ -69,13 +82,55 @@ export function MainDoc() {
       .then((result) => {
         if (!active) return
         setAnnotations(result.annotations)
+        setNotesForMain(result.annotations)
+        setSegments(result.segments)
         upsertNode(result.node)
       })
       .catch(() => {
         if (active) setError('无法刷新文档详情，正在显示本地内容。')
       })
     return () => { active = false }
-  }, [api, mainNodeId, upsertNode])
+  }, [api, mainNodeId, setNotesForMain, upsertNode])
+
+  // A merge only changes the parent's 合并结论 segments (and annotations); it must
+  // NOT wipe the active Q&A transcript/selection. Re-fetch segments only, and skip
+  // the initial mount so the ref guard fires solely on an actual tick bump.
+  const mergeTickRef = useRef(mergeRefreshTick)
+  useEffect(() => {
+    if (mergeTickRef.current === mergeRefreshTick) return
+    mergeTickRef.current = mergeRefreshTick
+    if (!mainNodeId) return
+    const getNode = (api as Partial<Api>).getNode
+    if (!getNode) return
+    let active = true
+    void getNode(mainNodeId)
+      .then((result) => {
+        if (!active) return
+        setSegments(result.segments)
+        setAnnotations(result.annotations)
+        setNotesForMain(result.annotations)
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [mergeRefreshTick, mainNodeId, api, setNotesForMain])
+
+  useEffect(() => {
+    if (!focusedAnnotationId) return
+    const el = scrollRef.current?.querySelector(`[data-ann-id="${focusedAnnotationId}"]`)
+    if (!el) {
+      // Nothing to flash — clear so re-selecting the same note later re-triggers.
+      useWorkbench.getState().setFocusedAnnotation(null)
+      return
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('ann-flash')
+    const t = setTimeout(() => {
+      el.classList.remove('ann-flash')
+      // Reset after the flash so clicking the SAME note again re-jumps.
+      useWorkbench.getState().setFocusedAnnotation(null)
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [focusedAnnotationId])
 
   if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入标题并新建一棵树，选中节点后即可在下方对话生成内容</div>
   const node = nodesById[mainNodeId]
@@ -107,6 +162,7 @@ export function MainDoc() {
       upsertNode({ ...result.childNode, status: 'streaming', user_input: question })
       openSubdocTab(childId)
       setSelection(null)
+      setBubbleMode(null)
       // Design §4③ step 4: the forked child must hold the conversation itself,
       // otherwise it is left permanently empty. Answer it with the seed question.
       let text = ''
@@ -272,7 +328,8 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
-        <DocView annotations={annotations} node={node} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        <DocView annotations={annotations} node={node} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+        <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
             <p className="turn-question" data-testid="turn-question">{turn.question}</p>
@@ -285,10 +342,31 @@ export function MainDoc() {
             />
           </section>
         ))}
-        {selection && (
+        {menu && selection && (
+          <SelectionMenu
+            onClose={() => setMenu(null)}
+            onPick={(kind) => { setBubbleMode(kind); setMenu(null) }}
+            x={menu.x}
+            y={menu.y}
+          />
+        )}
+        {selection && bubbleMode && (
           <AnnotationBubble
-            onCreateNote={() => setSelection(null)}
-            onDismiss={() => setSelection(null)}
+            initialFocus={bubbleMode}
+            onCreateNote={(noteText) => {
+              if (!selection) { setSelection(null); setBubbleMode(null); return }
+              void api.createNote(node.id, {
+                anchorFrom: selection.from, anchorTo: selection.to,
+                quotedText: selection.text, note: noteText,
+              }).then((res) => {
+                setAnnotations((cur) => [...cur, res.annotation])
+                const add = useWorkbench.getState().setNotesForMain
+                add([...useWorkbench.getState().notesForMain, res.annotation])
+              }).catch(() => setError('笔记保存失败，请重试。'))
+              setSelection(null)
+              setBubbleMode(null)
+            }}
+            onDismiss={() => { setSelection(null); setBubbleMode(null) }}
             onForkExpand={(question) => { void forkExpand(question) }}
             selection={selection}
           />

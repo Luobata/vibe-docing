@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useColumnResize } from '../flow/use-column-resize'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
 import { MainDoc } from './MainDoc'
-import { SubdocTabs } from './SubdocTabs'
+import { SubdocPanelTabs } from './SubdocPanelTabs'
 import { TrashPanel } from './TrashPanel'
 import { TreePanel } from './TreePanel'
 import { TreeLauncher } from './TreeLauncher'
@@ -22,10 +23,12 @@ export function Workbench() {
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
+  const notesForMain = useWorkbench((state) => state.notesForMain)
   const toast = useWorkbench((state) => state.toast)
   const treeId = useWorkbench((state) => state.treeId)
   const [showTrash, setShowTrash] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
+  const { leftWidth, rightWidth, startDrag, resetSide } = useColumnResize()
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -36,12 +39,17 @@ export function Workbench() {
   }, [exitFocus])
 
   return (
-    <div className="workbench" data-focus={focusMode} data-testid="workbench">
+    <div
+      className="workbench"
+      data-focus={focusMode}
+      data-testid="workbench"
+      style={{ '--col-left': leftWidth + 'px', '--col-right': rightWidth + 'px' } as React.CSSProperties}
+    >
       <aside
+        aria-hidden={focusMode || undefined}
         aria-label="树导航"
-        className="tree-panel"
+        className={`tree-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="tree-panel"
-        hidden={focusMode}
       >
         <h1>树形对话工作台</h1>
         <TreeLauncher />
@@ -55,6 +63,16 @@ export function Workbench() {
           </div>
         )}
       </aside>
+
+      {!focusMode && (
+        <div
+          aria-orientation="vertical"
+          className="col-resizer"
+          onDoubleClick={() => resetSide('left')}
+          onMouseDown={(e) => startDrag('left', e.clientX)}
+          role="separator"
+        />
+      )}
 
       <main aria-label="主文档" className="main-doc" data-testid="main-doc">
         <Breadcrumb />
@@ -83,18 +101,28 @@ export function Workbench() {
         <MainDoc />
       </main>
 
+      {!focusMode && (
+        <div
+          aria-orientation="vertical"
+          className="col-resizer"
+          onDoubleClick={() => resetSide('right')}
+          onMouseDown={(e) => startDrag('right', e.clientX)}
+          role="separator"
+        />
+      )}
+
       <section
+        aria-hidden={focusMode || undefined}
         aria-label="子文档"
-        className="subdoc-panel"
+        className={`subdoc-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="subdoc-panel"
       >
         <header className="panel-header">
           <div>
             <span className="eyebrow">子文档</span>
-            <h2>派生分支</h2>
           </div>
         </header>
-        <SubdocTabs />
+        <SubdocPanelTabs annotations={notesForMain} />
       </section>
       {toast && <div role="status">{toast}</div>}
     </div>

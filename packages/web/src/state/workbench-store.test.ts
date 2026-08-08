@@ -1,4 +1,4 @@
-import type { NodeRow, NodeVersionRow } from '@vibe/shared'
+import type { AnnotationRow, NodeRow, NodeVersionRow } from '@vibe/shared'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { RouteConvergence } from '../api/types'
 import { computeChildTabs, useWorkbench } from './workbench-store'
@@ -101,5 +101,50 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().trash).toHaveLength(1)
     expect(useWorkbench.getState().focusMode).toBe(true)
     expect(useWorkbench.getState().mainNodeId).toBe(root.id)
+  })
+
+  it('persists per-node merge state across reads', () => {
+    const store = useWorkbench.getState()
+    store.setMergeState('node-a', 'merging')
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBe('merging')
+    store.setMergeState('node-a', 'merged')
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBe('merged')
+    store.setMergeState('node-a', null)
+    expect(useWorkbench.getState().mergeStateByNodeId['node-a']).toBeUndefined()
+  })
+
+  it('tracks focused annotation for note jump', () => {
+    useWorkbench.getState().setFocusedAnnotation('ann-1')
+    expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-1')
+    useWorkbench.getState().setFocusedAnnotation(null)
+    expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
+  })
+
+  it('bumps the merge refresh tick so listeners can re-fetch', () => {
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(0)
+    useWorkbench.getState().bumpMergeRefresh()
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(1)
+    useWorkbench.getState().bumpMergeRefresh()
+    expect(useWorkbench.getState().mergeRefreshTick).toBe(2)
+  })
+
+  it('replaces notesForMain with the provided rows', () => {
+    const note = (id: string): AnnotationRow => ({
+      anchor_from: 0,
+      anchor_to: 3,
+      child_node_id: null,
+      created_at: '',
+      id,
+      kind: 'selection',
+      node_id: 'n1',
+      note: id,
+      quoted_text: '片段',
+    })
+
+    expect(useWorkbench.getState().notesForMain).toEqual([])
+    useWorkbench.getState().setNotesForMain([note('a1'), note('a2')])
+    expect(useWorkbench.getState().notesForMain.map((n) => n.id)).toEqual(['a1', 'a2'])
+    useWorkbench.getState().setNotesForMain([note('a3')])
+    expect(useWorkbench.getState().notesForMain.map((n) => n.id)).toEqual(['a3'])
   })
 })

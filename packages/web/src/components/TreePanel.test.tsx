@@ -67,11 +67,11 @@ describe('tree node deletion', () => {
   })
   afterEach(() => useWorkbench.getState().reset())
 
-  it('has no delete control on the root node', () => {
+  it('shows a delete control on the root node', () => {
     const api = { deleteNode: vi.fn(), getNode: vi.fn(() => new Promise(() => {})) }
     render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
-    // root ('根') has no delete button next to it
-    expect(screen.queryByRole('button', { name: '删除“根”' })).toBeNull()
+    // root ('根') now has a delete button (deletes the whole tree)
+    expect(screen.getByRole('button', { name: '删除“根”' })).toBeInTheDocument()
   })
 
   it('deletes a non-root subtree after confirming the cascade count, then offers undo', async () => {
@@ -104,5 +104,30 @@ describe('tree node deletion', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除“缓存问题”' }))
     expect(api.deleteNode).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
+  })
+})
+
+describe('root node deletion', () => {
+  beforeEach(() => {
+    useWorkbench.getState().reset()
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, null), node('a', 'root', '缓存问题')],
+      rootNodeId: 'root',
+      treeId: 't',
+    })
+  })
+  afterEach(() => {
+    useWorkbench.getState().reset()
+    vi.restoreAllMocks()
+  })
+
+  it('root delete button triggers deleteTree on the whole tree', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const api = { deleteTree: vi.fn().mockResolvedValue({ ok: true }) }
+    render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
+
+    fireEvent.click(screen.getByLabelText('删除“根”'))
+
+    await waitFor(() => expect(api.deleteTree).toHaveBeenCalledWith('t'))
   })
 })

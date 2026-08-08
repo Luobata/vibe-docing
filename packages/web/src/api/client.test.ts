@@ -66,6 +66,16 @@ describe('api client', () => {
     expect(errors).toEqual(['late warning'])
   })
 
+  it('createNote posts to /nodes/:id/annotation', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ annotation: { id: 'a1' } }),
+    })
+    const api = createApi({ fetchImpl })
+    const out = await api.createNote('n1', { anchorFrom: 0, anchorTo: 3, quotedText: 'x', note: '记一下' })
+    expect(fetchImpl).toHaveBeenCalledWith('/api/nodes/n1/annotation', expect.objectContaining({ method: 'POST' }))
+    expect(out.annotation.id).toBe('a1')
+  })
+
   it('rejects non-success responses with status context', async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ error: 'missing' }), { status: 404 }),

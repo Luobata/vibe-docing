@@ -1,4 +1,4 @@
-import type { NodeRow, NodeVersionRow } from '@vibe/shared'
+import type { AnnotationRow, NodeRow, NodeVersionRow } from '@vibe/shared'
 import { useSyncExternalStore } from 'react'
 import type { RouteConvergence } from '../api/types'
 
@@ -41,11 +41,15 @@ export function computeNodePath(
 interface WorkbenchData {
   activeSubdocId: string | null
   backStack: string[]
+  focusedAnnotationId: string | null
   focusMode: boolean
   forwardStack: string[]
   mainNodeId: string | null
   mainPath: string[]
+  mergeRefreshTick: number
+  mergeStateByNodeId: Record<string, 'merging' | 'merged'>
   nodesById: Record<string, NodeRow>
+  notesForMain: AnnotationRow[]
   panelRoles: typeof WORKBENCH_PANEL_ROLES
   rootNodeId: string | null
   routeByNodeId: Record<string, RouteConvergence>
@@ -57,6 +61,7 @@ interface WorkbenchData {
 }
 
 export interface WorkbenchState extends WorkbenchData {
+  bumpMergeRefresh(): void
   clearToast(): void
   exitFocus(): void
   goBack(): void
@@ -70,7 +75,10 @@ export interface WorkbenchState extends WorkbenchData {
   promoteSubdoc(nodeId: string): void
   reset(): void
   setActiveSubdoc(nodeId: string): void
+  setFocusedAnnotation(id: string | null): void
   setMain(nodeId: string): void
+  setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
+  setNotesForMain(rows: AnnotationRow[]): void
   setRouteState(nodeId: string, route: RouteConvergence): void
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string): void
@@ -87,11 +95,15 @@ function initialData(): WorkbenchData {
   return {
     activeSubdocId: null,
     backStack: [],
+    focusedAnnotationId: null,
     focusMode: false,
     forwardStack: [],
     mainNodeId: null,
     mainPath: [],
+    mergeRefreshTick: 0,
+    mergeStateByNodeId: {},
     nodesById: {},
+    notesForMain: [],
     panelRoles: WORKBENCH_PANEL_ROLES,
     rootNodeId: null,
     routeByNodeId: {},
@@ -132,6 +144,9 @@ function viewFor(
 }
 
 const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
+  bumpMergeRefresh() {
+    patch({ mergeRefreshTick: state.mergeRefreshTick + 1 })
+  },
   clearToast() {
     patch({ toast: null })
   },
@@ -188,6 +203,9 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   setActiveSubdoc(nodeId) {
     if (state.subdocTabs.includes(nodeId)) patch({ activeSubdocId: nodeId })
   },
+  setFocusedAnnotation(id) {
+    patch({ focusedAnnotationId: id })
+  },
   setMain(nodeId) {
     const node = state.nodesById[nodeId]
     if (!node || node.is_deleted === 1 || nodeId === state.mainNodeId) return
@@ -198,6 +216,15 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
         : state.backStack,
       forwardStack: [],
     })
+  },
+  setMergeState(nodeId, mergeState) {
+    const next = { ...state.mergeStateByNodeId }
+    if (mergeState === null) delete next[nodeId]
+    else next[nodeId] = mergeState
+    patch({ mergeStateByNodeId: next })
+  },
+  setNotesForMain(rows) {
+    patch({ notesForMain: [...rows] })
   },
   setRouteState(nodeId, route) {
     patch({ routeByNodeId: { ...state.routeByNodeId, [nodeId]: route } })

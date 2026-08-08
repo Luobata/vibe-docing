@@ -14,6 +14,7 @@ import { registerTrashRoutes } from './routes/trash'
 import { registerRouteConvergeRoutes } from './routes/route-converge'
 import { registerMigrateRoutes } from './routes/migrate'
 import { registerMergeRoutes } from './routes/merge'
+import { registerAnnotationRoutes } from './routes/annotation'
 import { registerSettingsRoutes } from './routes/settings'
 
 export type DecoratedApp = AppInstance & { deps: AppDeps }
@@ -33,6 +34,7 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerRouteConvergeRoutes(app)
   registerMigrateRoutes(app)
   registerMergeRoutes(app)
+  registerAnnotationRoutes(app)
   registerSettingsRoutes(app)
 
   return app
