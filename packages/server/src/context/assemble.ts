@@ -6,9 +6,17 @@ import type {
 import { prosemirrorToPlainText } from './prosemirror'
 import { resolveSegmentContent } from './resolve-segment'
 
+export interface ChatMessageToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
 export interface ChatMessage {
   content: string
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  tool_calls?: ChatMessageToolCall[]
+  tool_call_id?: string
 }
 
 export interface AssembleContextDeps {
