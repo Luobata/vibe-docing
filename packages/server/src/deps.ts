@@ -32,17 +32,18 @@ export function createDeps(options: { clock?: Clock; db: Db }): AppDeps {
   const segments = createSegmentRepo(options.db)
   const versions = createVersionRepo(options.db, clock)
   const context = createContextEngine({ nodes, segments, versions })
+  const settings = createSettingsRepo(options.db)
 
   return {
     annotations: createAnnotationRepo(options.db, clock),
-    answer: createAnswerService({ nodes, segments, versions }),
+    answer: createAnswerService({ nodes, segments, settings, versions }),
     clock,
     context,
     db: options.db,
     merges: createMergeRepo(options.db, clock),
     nodes,
     segments,
-    settings: createSettingsRepo(options.db),
+    settings,
     trees: createTreeRepo(options.db, clock),
     versions,
   }
