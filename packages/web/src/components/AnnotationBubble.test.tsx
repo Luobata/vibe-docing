@@ -27,3 +27,26 @@ describe('AnnotationBubble', () => {
     expect(onDismiss).toHaveBeenCalledOnce()
   })
 })
+
+const sel = { from: 0, to: 3, text: '内存' } as never
+
+describe('AnnotationBubble image+keyboard', () => {
+  it('submits note on Enter (Shift+Enter does not)', () => {
+    const onCreateNote = vi.fn()
+    render(<AnnotationBubble onCreateNote={onCreateNote} onDismiss={() => {}} onForkExpand={() => {}} selection={sel} />)
+    const note = screen.getByLabelText('note')
+    fireEvent.change(note, { target: { value: '待验证' } })
+    fireEvent.keyDown(note, { key: 'Enter', shiftKey: true })
+    expect(onCreateNote).not.toHaveBeenCalled()
+    fireEvent.keyDown(note, { key: 'Enter' })
+    expect(onCreateNote).toHaveBeenCalledWith('待验证')
+  })
+  it('submits fork question on Enter', () => {
+    const onForkExpand = vi.fn()
+    render(<AnnotationBubble initialFocus="expand" onCreateNote={() => {}} onDismiss={() => {}} onForkExpand={onForkExpand} selection={sel} />)
+    const q = screen.getByLabelText('fork-question')
+    fireEvent.change(q, { target: { value: '继续追问' } })
+    fireEvent.keyDown(q, { key: 'Enter' })
+    expect(onForkExpand).toHaveBeenCalledWith('继续追问')
+  })
+})
