@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useApi } from '../api/context'
 import { useColumnResize } from '../flow/use-column-resize'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
@@ -18,6 +19,7 @@ function nodeLabel(id: string | null, nodesById: ReturnType<typeof useWorkbench.
 }
 
 export function Workbench() {
+  const api = useApi()
   const focusMode = useWorkbench((state) => state.focusMode)
   const exitFocus = useWorkbench((state) => state.exitFocus)
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
@@ -37,6 +39,21 @@ export function Workbench() {
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [exitFocus])
+
+  async function handleCreateNote(note: string): Promise<void> {
+    if (!mainNodeId) return
+    try {
+      const res = await api.createNote(mainNodeId, {
+        anchorFrom: null, anchorTo: null, quotedText: null, note,
+      })
+      useWorkbench.getState().setNotesForMain([
+        ...useWorkbench.getState().notesForMain,
+        res.annotation,
+      ])
+    } catch {
+      /* swallow: the note input stays available for a retry */
+    }
+  }
 
   return (
     <div
@@ -122,7 +139,7 @@ export function Workbench() {
             <span className="eyebrow">子文档</span>
           </div>
         </header>
-        <SubdocPanelTabs annotations={notesForMain} />
+        <SubdocPanelTabs annotations={notesForMain} onCreateNote={(note) => { void handleCreateNote(note) }} />
       </section>
       {toast && <div role="status">{toast}</div>}
     </div>
