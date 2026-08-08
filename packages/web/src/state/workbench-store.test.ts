@@ -120,6 +120,17 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
   })
 
+  it('tracks subdoc panel tab and anchored note', () => {
+    const s = useWorkbench.getState()
+    expect(useWorkbench.getState().subdocPanelTab).toBe('derivations')
+    s.setSubdocPanelTab('notes')
+    expect(useWorkbench.getState().subdocPanelTab).toBe('notes')
+    s.setAnchoredNoteId('ann-9')
+    expect(useWorkbench.getState().anchoredNoteId).toBe('ann-9')
+    s.setAnchoredNoteId(null)
+    expect(useWorkbench.getState().anchoredNoteId).toBeNull()
+  })
+
   it('bumps the merge refresh tick so listeners can re-fetch', () => {
     expect(useWorkbench.getState().mergeRefreshTick).toBe(0)
     useWorkbench.getState().bumpMergeRefresh()
