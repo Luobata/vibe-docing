@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useApi } from '../api/context'
 import { useColumnResize } from '../flow/use-column-resize'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
@@ -18,6 +19,7 @@ function nodeLabel(id: string | null, nodesById: ReturnType<typeof useWorkbench.
 }
 
 export function Workbench() {
+  const api = useApi()
   const focusMode = useWorkbench((state) => state.focusMode)
   const exitFocus = useWorkbench((state) => state.exitFocus)
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
@@ -37,6 +39,25 @@ export function Workbench() {
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [exitFocus])
+
+  async function handleCreateNote(note: string): Promise<void> {
+    if (!mainNodeId) return
+    const targetNodeId = mainNodeId
+    try {
+      const res = await api.createNote(targetNodeId, {
+        anchorFrom: null, anchorTo: null, quotedText: null, note,
+      })
+      // The main node may have switched while createNote was in flight; only
+      // append to the current node's list, and dedupe by id so a merge-refetch
+      // that already inserted this row does not produce a duplicate React key.
+      const cur = useWorkbench.getState().notesForMain
+      if (useWorkbench.getState().mainNodeId === targetNodeId && !cur.some((a) => a.id === res.annotation.id)) {
+        useWorkbench.getState().setNotesForMain([...cur, res.annotation])
+      }
+    } catch {
+      useWorkbench.getState().setToast('笔记保存失败，请重试。')
+    }
+  }
 
   return (
     <div
@@ -122,7 +143,7 @@ export function Workbench() {
             <span className="eyebrow">子文档</span>
           </div>
         </header>
-        <SubdocPanelTabs annotations={notesForMain} />
+        <SubdocPanelTabs annotations={notesForMain} canCreateNote={!!mainNodeId} onCreateNote={(note) => { void handleCreateNote(note) }} />
       </section>
       {toast && <div role="status">{toast}</div>}
     </div>

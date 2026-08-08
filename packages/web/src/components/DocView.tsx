@@ -8,6 +8,7 @@ export function DocView({
   annotations,
   errorText,
   node,
+  onAnchorClick,
   onContextSelect,
   onRetry,
   onSelect,
@@ -15,6 +16,7 @@ export function DocView({
   annotations: Array<AnnotationRow | { from: number; id: string; to: number }>
   errorText?: string
   node: NodeRow
+  onAnchorClick?(annotationId: string): void
   onContextSelect?(selection: PlainSelection, x: number, y: number): void
   onRetry(): void
   onSelect(selection: PlainSelection): void
@@ -49,6 +51,11 @@ export function DocView({
         <div
           className="doc-body"
           dangerouslySetInnerHTML={{ __html: html }}
+          onClick={(e) => {
+            const el = (e.target as HTMLElement).closest('[data-ann-id]')
+            const id = el?.getAttribute('data-ann-id')
+            if (id && onAnchorClick) onAnchorClick(id)
+          }}
           onContextMenu={handleContextMenu}
           onKeyUp={captureSelection}
           onMouseUp={captureSelection}

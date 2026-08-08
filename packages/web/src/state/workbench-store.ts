@@ -40,6 +40,7 @@ export function computeNodePath(
 
 interface WorkbenchData {
   activeSubdocId: string | null
+  anchoredNoteId: string | null
   backStack: string[]
   focusedAnnotationId: string | null
   focusMode: boolean
@@ -53,6 +54,7 @@ interface WorkbenchData {
   panelRoles: typeof WORKBENCH_PANEL_ROLES
   rootNodeId: string | null
   routeByNodeId: Record<string, RouteConvergence>
+  subdocPanelTab: 'derivations' | 'notes'
   subdocTabs: string[]
   toast: string | null
   trash: NodeRow[]
@@ -75,11 +77,13 @@ export interface WorkbenchState extends WorkbenchData {
   promoteSubdoc(nodeId: string): void
   reset(): void
   setActiveSubdoc(nodeId: string): void
+  setAnchoredNoteId(id: string | null): void
   setFocusedAnnotation(id: string | null): void
   setMain(nodeId: string): void
   setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
   setNotesForMain(rows: AnnotationRow[]): void
   setRouteState(nodeId: string, route: RouteConvergence): void
+  setSubdocPanelTab(tab: 'derivations' | 'notes'): void
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string): void
   setTrash(nodes: NodeRow[]): void
@@ -94,6 +98,7 @@ const listeners = new Set<Listener>()
 function initialData(): WorkbenchData {
   return {
     activeSubdocId: null,
+    anchoredNoteId: null,
     backStack: [],
     focusedAnnotationId: null,
     focusMode: false,
@@ -107,6 +112,7 @@ function initialData(): WorkbenchData {
     panelRoles: WORKBENCH_PANEL_ROLES,
     rootNodeId: null,
     routeByNodeId: {},
+    subdocPanelTab: 'derivations',
     subdocTabs: [],
     toast: null,
     trash: [],
@@ -203,6 +209,9 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   setActiveSubdoc(nodeId) {
     if (state.subdocTabs.includes(nodeId)) patch({ activeSubdocId: nodeId })
   },
+  setAnchoredNoteId(id) {
+    patch({ anchoredNoteId: id })
+  },
   setFocusedAnnotation(id) {
     patch({ focusedAnnotationId: id })
   },
@@ -228,6 +237,9 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   },
   setRouteState(nodeId, route) {
     patch({ routeByNodeId: { ...state.routeByNodeId, [nodeId]: route } })
+  },
+  setSubdocPanelTab(tab) {
+    patch({ subdocPanelTab: tab })
   },
   setSubtreeDeleted(nodeId, deleted) {
     const flag: 0 | 1 = deleted ? 1 : 0

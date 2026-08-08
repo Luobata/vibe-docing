@@ -75,4 +75,18 @@ describe('DocView', () => {
     expect(screen.getByLabelText('正在生成')).toBeInTheDocument()
     expect(screen.queryByText(/思考中/)).toBeNull()
   })
+
+  it('calls onAnchorClick with the mark id when a mark is clicked', () => {
+    const onAnchorClick = vi.fn()
+    render(<DocView annotations={[annotation()]} node={node()} onAnchorClick={onAnchorClick} onRetry={() => {}} onSelect={() => {}} />)
+
+    const mark = screen.getByText('第一段').closest('mark')!
+    expect(mark).toHaveAttribute('data-ann-id', 'ann-1')
+    fireEvent.click(mark)
+    expect(onAnchorClick).toHaveBeenCalledWith('ann-1')
+
+    onAnchorClick.mockClear()
+    fireEvent.click(screen.getByText('第二段'))
+    expect(onAnchorClick).not.toHaveBeenCalled()
+  })
 })
