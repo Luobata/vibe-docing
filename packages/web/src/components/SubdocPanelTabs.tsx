@@ -2,9 +2,10 @@ import { useWorkbench } from '../state/workbench-store'
 import { NotesTab } from './NotesTab'
 import { SubdocTabs } from './SubdocTabs'
 
-export function SubdocPanelTabs({ annotations, onCreateNote }: {
+export function SubdocPanelTabs({ annotations, onCreateNote, canCreateNote }: {
   annotations: import('@vibe/shared').AnnotationRow[]
   onCreateNote(note: string): void
+  canCreateNote: boolean
 }) {
   const tab = useWorkbench((s) => s.subdocPanelTab)
   const setTab = useWorkbench((s) => s.setSubdocPanelTab)
@@ -17,7 +18,7 @@ export function SubdocPanelTabs({ annotations, onCreateNote }: {
       </div>
       {tab === 'derivations'
         ? <SubdocTabs />
-        : <NotesTab annotations={annotations} onCreateNote={onCreateNote} onJump={(id) => setFocusedAnnotation(id)} />}
+        : <NotesTab annotations={annotations} canCreateNote={canCreateNote} onCreateNote={onCreateNote} onJump={(id) => setFocusedAnnotation(id)} />}
     </div>
   )
 }

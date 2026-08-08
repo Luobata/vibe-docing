@@ -19,4 +19,11 @@ describe('pickAnchorTarget', () => {
   it('returns null for an unknown id', () => {
     expect(pickAnchorTarget([], 'nope')).toBeNull()
   })
+  it('skips a deleted branch in favor of a live note when isBranchLive is false', () => {
+    const anns = [
+      a({ id: 'note1', note: 'n', anchor_from: 0, anchor_to: 10 }),
+      a({ id: 'fork1', child_node_id: 'gone', anchor_from: 2, anchor_to: 6, created_at: '2026-01-02' }),
+    ]
+    expect(pickAnchorTarget(anns, 'note1', (childId) => childId !== 'gone')).toEqual({ kind: 'note', annotationId: 'note1' })
+  })
 })

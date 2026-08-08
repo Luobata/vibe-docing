@@ -5,7 +5,12 @@ export interface PastedImage { id: string; name: string; url: string }
 export function usePastedImages() {
   const [images, setImages] = useState<PastedImage[]>([])
   const seq = useRef(0)
-  useEffect(() => () => { for (const i of images) URL.revokeObjectURL(i.url) }, [images])
+  // Hold the live images in a ref and revoke ONLY on unmount. Keying the cleanup
+  // on [images] would revoke a still-mounted thumbnail's URL on every add.
+  // Per-item revokes remain in removeImage/clear for explicit disposal.
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  useEffect(() => () => { for (const i of imagesRef.current) URL.revokeObjectURL(i.url) }, [])
   function addFiles(files: FileList | File[]): void {
     const picked: PastedImage[] = []
     for (const file of Array.from(files)) {

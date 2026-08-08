@@ -330,7 +330,10 @@ export function MainDoc() {
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
         <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
-          const target = pickAnchorTarget(annotations, annId)
+          const target = pickAnchorTarget(annotations, annId, (childId) => {
+            const n = nodesById[childId]
+            return !!n && n.is_deleted === 0
+          })
           const s = useWorkbench.getState()
           if (!target) return
           if (target.kind === 'branch') { s.setSubdocPanelTab('derivations'); s.openSubdocTab(target.childNodeId) }
@@ -362,13 +365,19 @@ export function MainDoc() {
             initialFocus={bubbleMode}
             onCreateNote={(noteText) => {
               if (!selection) { setSelection(null); setBubbleMode(null); return }
-              void api.createNote(node.id, {
+              const targetNodeId = node.id
+              void api.createNote(targetNodeId, {
                 anchorFrom: selection.from, anchorTo: selection.to,
                 quotedText: selection.text, note: noteText,
               }).then((res) => {
+                // Local annotations always get the new mark (drives the highlight).
                 setAnnotations((cur) => [...cur, res.annotation])
-                const add = useWorkbench.getState().setNotesForMain
-                add([...useWorkbench.getState().notesForMain, res.annotation])
+                // Only append to the global list if the main node hasn't switched,
+                // and dedupe by id so a concurrent merge-refetch can't dup the key.
+                const cur = useWorkbench.getState().notesForMain
+                if (useWorkbench.getState().mainNodeId === targetNodeId && !cur.some((a) => a.id === res.annotation.id)) {
+                  useWorkbench.getState().setNotesForMain([...cur, res.annotation])
+                }
               }).catch(() => setError('笔记保存失败，请重试。'))
               setSelection(null)
               setBubbleMode(null)

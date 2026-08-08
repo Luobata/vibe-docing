@@ -4,13 +4,15 @@ import { usePastedImages } from '../flow/use-pasted-images'
 import { useWorkbench } from '../state/workbench-store'
 import { ImageThumbs } from './ImageThumbs'
 
-export function NotesTab({ annotations, onJump, onCreateNote }: {
+export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
   annotations: AnnotationRow[]
   onJump(annotationId: string): void
   onCreateNote(note: string): void
+  canCreateNote: boolean
 }) {
   const [value, setValue] = useState('')
   const [flashId, setFlashId] = useState<string | null>(null)
+  const [showHint, setShowHint] = useState(false)
   const anchoredNoteId = useWorkbench((s) => s.anchoredNoteId)
   const listRef = useRef<HTMLUListElement>(null)
   const { images, removeImage, clear, handlePaste, handleDrop } = usePastedImages()
@@ -37,8 +39,12 @@ export function NotesTab({ annotations, onJump, onCreateNote }: {
     if (event.nativeEvent.isComposing) return
     if (event.shiftKey) return
     event.preventDefault()
+    if (!canCreateNote) return
     const note = value.trim()
     if (!note) return
+    // v1: pasted images are a local-only affordance — surface the degrade hint
+    // (mirrors ChatBox) so images don't just vanish silently on submit.
+    if (images.length > 0) setShowHint(true)
     onCreateNote(note)
     setValue('')
     clear()
@@ -48,8 +54,12 @@ export function NotesTab({ annotations, onJump, onCreateNote }: {
     <div className="notes-tab">
       <div className="new-note">
         <ImageThumbs images={images} onRemove={removeImage} />
+        {showHint && (
+          <p className="image-degrade-hint" data-testid="image-degrade-hint">图片仅本地保存，模型暂不读图。</p>
+        )}
         <textarea
           aria-label="new-note-input"
+          disabled={!canCreateNote}
           onChange={(event) => setValue(event.target.value)}
           onDrop={handleDrop}
           onKeyDown={handleKeyDown}

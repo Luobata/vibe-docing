@@ -16,13 +16,13 @@ describe('NotesTab', () => {
 
   it('lists only note annotations (child_node_id null) and fires onJump', () => {
     const onJump = vi.fn()
-    render(<NotesTab annotations={[ann({}), ann({ id: 'a2', child_node_id: 'c1', note: null })]} onJump={onJump} onCreateNote={() => {}} />)
+    render(<NotesTab annotations={[ann({}), ann({ id: 'a2', child_node_id: 'c1', note: null })]} canCreateNote={true} onJump={onJump} onCreateNote={() => {}} />)
     expect(screen.getByText('待验证')).toBeInTheDocument()
     fireEvent.click(screen.getByText('待验证'))
     expect(onJump).toHaveBeenCalledWith('a1')
   })
   it('shows empty state when no notes', () => {
-    render(<NotesTab annotations={[]} onJump={() => {}} onCreateNote={() => {}} />)
+    render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={() => {}} />)
     expect(screen.getByText('还没有笔记')).toBeInTheDocument()
   })
 })
@@ -34,12 +34,21 @@ describe('NotesTab create', () => {
 
   it('submits a new note on Enter and clears', () => {
     const onCreateNote = vi.fn()
-    render(<NotesTab annotations={[]} onJump={() => {}} onCreateNote={onCreateNote} />)
+    render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={onCreateNote} />)
     const input = screen.getByLabelText('new-note-input')
     fireEvent.change(input, { target: { value: '一条新笔记' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onCreateNote).toHaveBeenCalledWith('一条新笔记')
     expect(input).toHaveValue('')
+  })
+
+  it('disables the input and skips submit when there is no document', () => {
+    const onCreateNote = vi.fn()
+    render(<NotesTab annotations={[]} canCreateNote={false} onJump={() => {}} onCreateNote={onCreateNote} />)
+    const input = screen.getByLabelText('new-note-input')
+    expect(input).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onCreateNote).not.toHaveBeenCalled()
   })
 })
 
@@ -50,7 +59,7 @@ describe('NotesTab anchor highlight', () => {
 
   it('flashes the anchored note and clears anchoredNoteId', () => {
     useWorkbench.getState().setAnchoredNoteId('a1')
-    render(<NotesTab annotations={[ann({})]} onJump={() => {}} onCreateNote={() => {}} />)
+    render(<NotesTab annotations={[ann({})]} canCreateNote={true} onJump={() => {}} onCreateNote={() => {}} />)
     const item = screen.getByText('待验证').closest('.note-item')
     expect(item).toHaveClass('ann-flash')
     expect(useWorkbench.getState().anchoredNoteId).toBeNull()

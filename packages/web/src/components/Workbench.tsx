@@ -42,16 +42,20 @@ export function Workbench() {
 
   async function handleCreateNote(note: string): Promise<void> {
     if (!mainNodeId) return
+    const targetNodeId = mainNodeId
     try {
-      const res = await api.createNote(mainNodeId, {
+      const res = await api.createNote(targetNodeId, {
         anchorFrom: null, anchorTo: null, quotedText: null, note,
       })
-      useWorkbench.getState().setNotesForMain([
-        ...useWorkbench.getState().notesForMain,
-        res.annotation,
-      ])
+      // The main node may have switched while createNote was in flight; only
+      // append to the current node's list, and dedupe by id so a merge-refetch
+      // that already inserted this row does not produce a duplicate React key.
+      const cur = useWorkbench.getState().notesForMain
+      if (useWorkbench.getState().mainNodeId === targetNodeId && !cur.some((a) => a.id === res.annotation.id)) {
+        useWorkbench.getState().setNotesForMain([...cur, res.annotation])
+      }
     } catch {
-      /* swallow: the note input stays available for a retry */
+      useWorkbench.getState().setToast('笔记保存失败，请重试。')
     }
   }
 
@@ -139,7 +143,7 @@ export function Workbench() {
             <span className="eyebrow">子文档</span>
           </div>
         </header>
-        <SubdocPanelTabs annotations={notesForMain} onCreateNote={(note) => { void handleCreateNote(note) }} />
+        <SubdocPanelTabs annotations={notesForMain} canCreateNote={!!mainNodeId} onCreateNote={(note) => { void handleCreateNote(note) }} />
       </section>
       {toast && <div role="status">{toast}</div>}
     </div>
