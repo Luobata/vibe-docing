@@ -4,10 +4,11 @@ interface SettingsUpdate {
   apiKey?: string
   baseUrl?: string
   model?: string
+  projectRoot?: string
   provider?: string
 }
 
-const allowedKeys = new Set(['apiKey', 'baseUrl', 'model', 'provider'])
+const allowedKeys = new Set(['apiKey', 'baseUrl', 'model', 'projectRoot', 'provider'])
 
 function parseUpdate(body: unknown): SettingsUpdate | undefined {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return undefined
@@ -23,6 +24,7 @@ function settingsView(app: DecoratedApp) {
     baseUrl: config.baseUrl,
     hasApiKey: Boolean(config.apiKey),
     model: config.model,
+    projectRoot: app.deps.settings.getProjectRoot(),
     provider: config.provider,
   }
 }
@@ -38,6 +40,7 @@ export function registerSettingsRoutes(app: DecoratedApp): void {
       ['provider.model', parsed.model],
       ['provider.apiKey', parsed.apiKey],
       ['provider.baseUrl', parsed.baseUrl],
+      ['project.root', parsed.projectRoot],
     ]
     for (const [key, value] of values) {
       if (value !== undefined) app.deps.settings.set(key, value)

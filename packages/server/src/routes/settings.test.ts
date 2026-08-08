@@ -10,16 +10,34 @@ describe('settings routes', () => {
     const app = buildApp(deps)
     const defaults = await app.inject({ method: 'GET', url: '/api/settings' })
     expect(defaults.statusCode).toBe(200)
-    expect(defaults.json()).toEqual({ baseUrl: null, hasApiKey: false, model: 'gpt-5-codex', provider: 'codex' })
+    expect(defaults.json()).toEqual({ baseUrl: null, hasApiKey: false, model: 'gpt-5-codex', projectRoot: null, provider: 'codex' })
 
     const updated = await app.inject({
       method: 'PUT', payload: { apiKey: 'secret', baseUrl: 'https://example.test', model: 'gpt-x', provider: 'custom' },
       url: '/api/settings',
     })
     expect(updated.statusCode).toBe(200)
-    expect(updated.json()).toEqual({ baseUrl: 'https://example.test', hasApiKey: true, model: 'gpt-x', provider: 'custom' })
+    expect(updated.json()).toMatchObject({ baseUrl: 'https://example.test', hasApiKey: true, model: 'gpt-x', provider: 'custom' })
     expect(updated.body).not.toContain('secret')
     expect(deps.settings.get('provider.apiKey')).toBe('secret')
+    await app.close()
+  })
+
+  it('persists and echoes the project root', async () => {
+    const deps = createDeps({ db: openMemoryDb(), clock: fixedClock('2026-08-05T00:00:00.000Z') })
+    const app = buildApp(deps)
+
+    const defaults = await app.inject({ method: 'GET', url: '/api/settings' })
+    expect(defaults.json()).toMatchObject({ projectRoot: null })
+
+    const updated = await app.inject({ method: 'PUT', payload: { projectRoot: '/tmp' }, url: '/api/settings' })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json()).toMatchObject({ projectRoot: '/tmp' })
+
+    const after = await app.inject({ method: 'GET', url: '/api/settings' })
+    expect(after.json()).toMatchObject({ projectRoot: '/tmp' })
+    expect(Object.keys(after.json())).not.toContain('apiKey')
+    expect(after.json()).toMatchObject({ hasApiKey: false })
     await app.close()
   })
 

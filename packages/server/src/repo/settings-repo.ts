@@ -31,5 +31,10 @@ export function createSettingsRepo(db: Db) {
     }
   }
 
-  return { get, getProviderConfig, set }
+  function getProjectRoot(): string | null {
+    const v = get('project.root')
+    return v && v.trim() ? v : null
+  }
+
+  return { get, getProjectRoot, getProviderConfig, set }
 }
