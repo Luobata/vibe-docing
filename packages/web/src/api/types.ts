@@ -27,3 +27,19 @@ export interface RouteConvergence {
   thresholds: RouteThresholds
 }
 
+export interface SettingsView {
+  baseUrl: string | null
+  hasApiKey: boolean
+  model: string
+  projectRoot: string | null
+  provider: string
+}
+
+export interface SettingsPatch {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+  projectRoot?: string
+  provider?: string
+}
+

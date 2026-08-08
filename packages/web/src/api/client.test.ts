@@ -66,6 +66,34 @@ describe('api client', () => {
     expect(errors).toEqual(['late warning'])
   })
 
+  it('getSettings GETs /api/settings', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        baseUrl: null, hasApiKey: false, model: 'gpt-4o', projectRoot: '/proj', provider: 'openai',
+      }),
+    })
+    const api = createApi({ fetchImpl })
+    const out = await api.getSettings()
+    expect(fetchImpl).toHaveBeenCalledWith('/api/settings', expect.any(Object))
+    expect(out.projectRoot).toBe('/proj')
+  })
+
+  it('updateSettings PUTs the patch as a json body', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        baseUrl: null, hasApiKey: false, model: 'gpt-4o', projectRoot: '/x', provider: 'openai',
+      }),
+    })
+    const api = createApi({ fetchImpl })
+    await api.updateSettings({ projectRoot: '/x' })
+    expect(fetchImpl).toHaveBeenCalledWith(
+      '/api/settings',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ projectRoot: '/x' }) }),
+    )
+  })
+
   it('createNote posts to /nodes/:id/annotation', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true, json: async () => ({ annotation: { id: 'a1' } }),

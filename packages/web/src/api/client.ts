@@ -8,7 +8,7 @@ import type {
   RouteTarget,
   TreeRow,
 } from '@vibe/shared'
-import type { RouteConvergence } from './types'
+import type { RouteConvergence, SettingsPatch, SettingsView } from './types'
 
 export class ApiError extends Error {
   constructor(
@@ -131,6 +131,12 @@ export function createApi(options?: {
       }>(`/nodes/${nodeId}`),
     getNodePath: (nodeId: string) =>
       json<{ path: NodeRow[] }>(`/nodes/${nodeId}/path`),
+    getSettings: () => json<SettingsView>('/settings'),
+    updateSettings: (patch: SettingsPatch) =>
+      json<SettingsView>('/settings', {
+        body: JSON.stringify(patch),
+        method: 'PUT',
+      }),
     getTrash: (treeId: string) =>
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
     getTree: (treeId: string) =>

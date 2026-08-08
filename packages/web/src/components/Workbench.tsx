@@ -4,6 +4,7 @@ import { useColumnResize } from '../flow/use-column-resize'
 import { useWorkbench } from '../state/workbench-store'
 import { Breadcrumb } from './Breadcrumb'
 import { MainDoc } from './MainDoc'
+import { SettingsPanel } from './SettingsPanel'
 import { SubdocPanelTabs } from './SubdocPanelTabs'
 import { TrashPanel } from './TrashPanel'
 import { TreePanel } from './TreePanel'
@@ -30,6 +31,7 @@ export function Workbench() {
   const treeId = useWorkbench((state) => state.treeId)
   const [showTrash, setShowTrash] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const { leftWidth, rightWidth, startDrag, resetSide } = useColumnResize()
 
   useEffect(() => {
@@ -116,8 +118,12 @@ export function Workbench() {
             >
               {focusMode ? '退出聚焦' : '沉浸聚焦'}
             </button>
+            <button className="quiet-button" onClick={() => setShowSettings((shown) => !shown)} type="button">
+              {showSettings ? '收起设置' : '设置'}
+            </button>
           </div>
         </header>
+        {showSettings && <SettingsPanel />}
         {showVersions && mainNodeId && <VersionPanel nodeId={mainNodeId} />}
         <MainDoc />
       </main>
