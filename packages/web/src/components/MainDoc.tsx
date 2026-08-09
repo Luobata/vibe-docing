@@ -370,22 +370,26 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
-        {node.user_input && (
-          <QuestionEditor question={node.user_input} disabled={busy} onResubmit={(next) => { void editMainQuestion(next) }} />
-        )}
-        <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
-          const target = pickAnchorTarget(annotations, annId, (childId) => {
-            const n = nodesById[childId]
-            return !!n && n.is_deleted === 0
-          })
-          const s = useWorkbench.getState()
-          if (!target) return
-          if (target.kind === 'branch') { s.setSubdocPanelTab('derivations'); s.openSubdocTab(target.childNodeId) }
-          else { s.setSubdocPanelTab('notes'); s.setAnchoredNoteId(target.annotationId) }
-        }} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
-        <MergedConclusions segments={segments} />
+        <section aria-label="主对话轮次" className="turn-card">
+          <div className="turn-badge"><span className="turn-badge-dot" />第 1 轮</div>
+          {node.user_input && (
+            <QuestionEditor question={node.user_input} disabled={busy} onResubmit={(next) => { void editMainQuestion(next) }} />
+          )}
+          <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
+            const target = pickAnchorTarget(annotations, annId, (childId) => {
+              const n = nodesById[childId]
+              return !!n && n.is_deleted === 0
+            })
+            const s = useWorkbench.getState()
+            if (!target) return
+            if (target.kind === 'branch') { s.setSubdocPanelTab('derivations'); s.openSubdocTab(target.childNodeId) }
+            else { s.setSubdocPanelTab('notes'); s.setAnchoredNoteId(target.annotationId) }
+          }} onContextSelect={(sel, x, y) => { setSelection(sel); setMenu({ x, y }) }} onRetry={() => { void retryCurrent() }} onSelect={setSelection} />
+          <MergedConclusions segments={segments} />
+        </section>
         {transcript.map((turn, index) => (
-          <section aria-label="对话轮次" className="turn" key={turn.id}>
+          <section aria-label="对话轮次" className="turn-card" key={turn.id}>
+            <div className="turn-badge"><span className="turn-badge-dot" />第 {index + 2} 轮</div>
             <QuestionEditor
               disabled={busy}
               onResubmit={(next) => { void editTurnQuestion(turn, next) }}
