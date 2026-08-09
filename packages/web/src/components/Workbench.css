@@ -169,7 +169,7 @@ button { font: inherit; color: inherit; }
   width: 100%;
   padding: 8px 11px;
   color: var(--text-1);
-  background: var(--fill-inset);
+  background: var(--surface);
   border: 1px solid var(--border-2);
   border-radius: var(--r2);
   resize: vertical;
@@ -177,7 +177,9 @@ button { font: inherit; color: inherit; }
 }
 .tree-launcher input::placeholder,
 .chat-box textarea::placeholder,
-.annotation-bubble textarea::placeholder { color: var(--text-4); }
+.annotation-bubble textarea::placeholder { color: var(--text-3); }
+/* 真正禁用时（生成中）才显灰，避免可用输入被误认为不可提问 */
+.chat-box textarea:disabled { background: var(--fill-inset); color: var(--text-3); cursor: not-allowed; }
 .tree-launcher input:focus,
 .chat-box textarea:focus,
 .annotation-bubble textarea:focus {
@@ -927,14 +929,33 @@ button { font: inherit; color: inherit; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* 长问题默认收起为 2 行，可展开/收起 */
+.question-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.question-text--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.question-toggle {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--primary-hover);
+  background: none;
+  border: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.question-toggle:hover { text-decoration: underline; }
 /* 主问题（无 testId）：文档顶部的偏标题式问题，非气泡 */
-.question-view > .question-text:not(.turn-question) {
+.question-view > .question-main > .question-text:not(.turn-question) {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -.01em;
 }
 /* 轮次问题：用户气泡靠右对齐（问答左右分开更好认轮次） */
 .question-view:has(.turn-question) { justify-content: flex-end; flex-direction: row-reverse; }
+.question-view:has(.turn-question) .question-main { flex: 0 1 auto; align-items: flex-end; max-width: 82%; }
 .turn-question {
   flex: 0 1 auto;
   max-width: 82%;
