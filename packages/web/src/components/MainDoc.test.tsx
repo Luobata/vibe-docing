@@ -241,6 +241,52 @@ describe('MainDoc fork flow', () => {
     await waitFor(() => expect(screen.getByTestId('turn-question')).toHaveTextContent('改后的轮次问题'))
   })
 
+  it('editing a NON-last turn keeps lastQuestion coupled to the last turn (retry uses the last question)', async () => {
+    const root = node('root', null)
+    const a1 = { ...node('answer1', 'root'), user_input: '第一问' }
+    const a2 = { ...node('answer2', 'answer1'), user_input: '第二问' }
+    let forkCount = 0
+    let secondTurnErrored = false
+    const streamAnswer = vi.fn(async (id: string, q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void; onError(m: string): void }) => {
+      // The last turn's first stream errors so its DocView exposes a retry button.
+      if (id === 'answer2' && q === '第二问' && !secondTurnErrored) { secondTurnErrored = true; handlers.onError('HTTP 500'); return }
+      handlers.onChunk('x')
+      handlers.onDone({ ...(id === 'answer1' ? a1 : a2), status: 'complete', user_input: q })
+    })
+    const api = {
+      editNode: vi.fn(async (id: string, body: { userInput: string }) => ({ node: { ...(id === 'answer1' ? a1 : a2), status: 'draft' as const, user_input: body.userInput } })),
+      fork: vi.fn(async () => { forkCount += 1; return { annotation: { id: `ann${forkCount}` }, childNode: forkCount === 1 ? a1 : a2 } }),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    // build two turns
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ seedText: '第一问' })))
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第二问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ seedText: '第二问' })))
+    // last turn errored → its retry button is present
+    await waitFor(() => expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument())
+
+    // edit the FIRST (non-last) turn's question
+    const firstTurn = screen.getAllByRole('region', { name: '对话轮次' })[0]
+    fireEvent.click(within(firstTurn).getByLabelText('编辑问题'))
+    fireEvent.change(within(firstTurn).getByLabelText('edit-question'), { target: { value: '改后的第一问' } })
+    fireEvent.click(within(firstTurn).getByRole('button', { name: '保存并重新生成' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer1', '改后的第一问', expect.anything()))
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+
+    // retry the last turn: it must regenerate answer2 with the LAST question (第二问),
+    // NOT the non-last turn's edited question — lastQuestion stayed coupled to the last turn.
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenLastCalledWith('answer2', '第二问', expect.anything()))
+  })
+
   it('chains follow-up turns by forking from the previous answer node', async () => {
     const root = node('root', null)
     const a1 = { ...node('answer1', 'root'), user_input: '第一问' }

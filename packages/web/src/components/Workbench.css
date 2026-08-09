@@ -882,14 +882,73 @@ button { font: inherit; color: inherit; }
 
 /* 对话轮次 */
 .turn { margin-top: 24px; padding-top: 18px; border-top: 1px dashed var(--border-2); }
-.turn-question {
+
+/* 问题编辑器（主问题 + 轮次问题） */
+.question-view {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin: 0 0 6px;
-  padding: 9px 13px;
+}
+.question-text {
+  flex: 1;
+  min-width: 0;
   color: var(--text-1);
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 主问题（无 testId）：文档顶部的偏标题式问题，非气泡 */
+.question-view > .question-text:not(.turn-question) {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+/* 轮次问题：恢复用户气泡样式 */
+.turn-question {
+  padding: 9px 13px;
   background: var(--primary-tint);
   border-radius: 12px 12px 12px 3px;
-  font-size: 15px;
 }
+/* 编辑按钮：安静，悬停轮次时才明显 */
+.question-view .quiet-button {
+  flex: none;
+  padding: 3px 9px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity .12s, background .12s, border-color .12s, color .12s;
+}
+.question-view:hover .quiet-button,
+.question-view .quiet-button:focus-visible {
+  opacity: 1;
+}
+.question-view .quiet-button:disabled { opacity: .35; cursor: not-allowed; }
+
+.question-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.question-editor textarea {
+  width: 100%;
+  padding: 8px 11px;
+  color: var(--text-1);
+  background: var(--fill-inset);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r2);
+  resize: vertical;
+  transition: border-color .14s, box-shadow .14s, background .14s;
+}
+.question-editor textarea:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-tint);
+}
+.question-editor-actions { display: flex; gap: 8px; }
+.question-editor-actions button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
 
 .scroll-to-bottom {
   position: absolute;

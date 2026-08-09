@@ -10,6 +10,7 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
   const imgs = usePastedImages()
 
   function submit(): void {
+    if (disabled) return
     const next = value.trim()
     if (!next) return
     onResubmit(next)
@@ -19,13 +20,16 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
   function cancel(): void { setValue(question); imgs.clear(); setEditing(false) }
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.shiftKey) return
-    e.preventDefault(); submit()
+    e.preventDefault()
+    if (disabled) return
+    submit()
   }
 
   if (!editing) {
+    const textClass = testId === 'turn-question' ? 'question-text turn-question' : 'question-text'
     return (
       <div className="question-view">
-        <span className="question-text" data-testid={testId}>{question}</span>
+        <span className={textClass} data-testid={testId}>{question}</span>
         <button aria-label="编辑问题" className="quiet-button" disabled={disabled}
           onClick={() => { if (!disabled) { setValue(question); setEditing(true) } }} type="button">编辑</button>
       </div>
@@ -37,7 +41,7 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
         onDrop={imgs.handleDrop} onKeyDown={onKeyDown} onPaste={imgs.handlePaste} value={value} />
       <ImageThumbs images={imgs.images} onRemove={imgs.removeImage} />
       <div className="question-editor-actions">
-        <button className="primary-button" disabled={!value.trim()} onClick={submit} type="button">保存并重新生成</button>
+        <button className="primary-button" disabled={disabled || !value.trim()} onClick={submit} type="button">保存并重新生成</button>
         <button className="quiet-button" onClick={cancel} type="button">取消</button>
       </div>
     </div>

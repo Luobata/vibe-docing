@@ -333,7 +333,10 @@ export function MainDoc() {
       await api.editNode(turn.id, { userInput: next })
       setTranscript((turns) => turns.map((t) => t.id === turn.id
         ? { ...t, question: next, answer: { ...t.answer, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: next } } : t))
-      setLastQuestion(next)
+      // NOTE: do NOT setLastQuestion(next) here. runTurn(turn.id, next) uses `next`
+      // directly for the edit; lastQuestion must stay coupled to the actual last turn
+      // (set by ask), or retryLastTurn would regenerate the last turn with a non-last
+      // edited question. See final-review FIX 1.
       await runTurn(turn.id, next)
     } catch (cause) {
       if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重新生成失败，请重试。')
