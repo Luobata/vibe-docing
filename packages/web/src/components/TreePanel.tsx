@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApi } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
 
@@ -25,7 +25,7 @@ function countSubtree(nodesById: Record<string, NodeRow>, nodeId: string): numbe
   return total
 }
 
-function TreeBranch({ nodeId, onDelete }: { nodeId: string; onDelete(id: string): void }) {
+function TreeBranch({ nodeId, onDelete, onNodeSelect }: { nodeId: string; onDelete(id: string): void; onNodeSelect?(): void }) {
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
   const setMain = useWorkbench((state) => state.setMain)
@@ -43,7 +43,8 @@ function TreeBranch({ nodeId, onDelete }: { nodeId: string; onDelete(id: string)
       <div className="tree-node-row">
         <button
           aria-current={mainNodeId === node.id ? 'page' : undefined}
-          onClick={() => setMain(node.id)}
+          onClick={() => { setMain(node.id); onNodeSelect?.() }}
+          title={nodeTitle(node)}
           type="button"
         >
           <span aria-hidden="true">{children.length ? '⌄' : '·'}</span>{' '}
@@ -61,7 +62,7 @@ function TreeBranch({ nodeId, onDelete }: { nodeId: string; onDelete(id: string)
       {children.length > 0 && (
         <ul>
           {children.map((child) => (
-            <TreeBranch key={child.id} nodeId={child.id} onDelete={onDelete} />
+            <TreeBranch key={child.id} nodeId={child.id} onDelete={onDelete} onNodeSelect={onNodeSelect} />
           ))}
         </ul>
       )}
@@ -69,13 +70,24 @@ function TreeBranch({ nodeId, onDelete }: { nodeId: string; onDelete(id: string)
   )
 }
 
-export function TreePanel() {
+export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
   const api = useApi()
   const rootNodeId = useWorkbench((state) => state.rootNodeId)
   const nodesById = useWorkbench((state) => state.nodesById)
   const setSubtreeDeleted = useWorkbench((state) => state.setSubtreeDeleted)
   const [undoId, setUndoId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [errorPaused, setErrorPaused] = useState(false)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    if (!error || errorPaused) return
+    errorTimerRef.current = setTimeout(() => setError(null), 8000)
+    return () => {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    }
+  }, [error, errorPaused])
 
   async function handleDelete(id: string): Promise<void> {
     const node = nodesById[id]
@@ -125,7 +137,7 @@ export function TreePanel() {
   return (
     <nav aria-label="文档树">
       <ul className="tree-root">
-        <TreeBranch nodeId={rootNodeId} onDelete={(id) => { void handleDelete(id) }} />
+        <TreeBranch nodeId={rootNodeId} onDelete={(id) => { void handleDelete(id) }} onNodeSelect={onNodeSelect} />
       </ul>
       {undoId && (
         <div className="tree-undo" role="status">
@@ -133,7 +145,12 @@ export function TreePanel() {
           <button onClick={() => { void handleUndo() }} type="button">撤销</button>
         </div>
       )}
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {error && (
+        <div className="inline-error dismissible-notice" onMouseEnter={() => setErrorPaused(true)} onMouseLeave={() => setErrorPaused(false)} role="alert">
+          <span>{error}</span>
+          <button aria-label="关闭错误提示" onClick={() => setError(null)} type="button">×</button>
+        </div>
+      )}
     </nav>
   )
 }

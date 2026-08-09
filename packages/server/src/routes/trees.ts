@@ -18,6 +18,10 @@ export function registerTreeRoutes(app: DecoratedApp): void {
 
   app.get('/api/trees', async () => ({ trees: app.deps.trees.list() }))
 
+  app.get('/api/trees/deleted', async () => ({
+    trees: app.deps.trees.listDeleted(),
+  }))
+
   app.patch('/api/trees/:id', async (request, reply) => {
     const title = objectBody(request.body)?.title
     if (typeof title !== 'string' || !title.trim()) {
@@ -35,6 +39,14 @@ export function registerTreeRoutes(app: DecoratedApp): void {
     }
     app.deps.trees.softDelete(request.params.id)
     return { ok: true }
+  })
+
+  app.post('/api/trees/:id/restore', async (request, reply) => {
+    const tree = app.deps.trees.restore(request.params.id)
+    if (!tree) {
+      return reply.code(404).send({ error: 'deleted tree not found' })
+    }
+    return { tree }
   })
 
   app.get('/api/trees/:id', async (request, reply) => {

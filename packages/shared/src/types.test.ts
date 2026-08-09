@@ -3,7 +3,13 @@ import { NODE_STATUSES, ROUTE_TARGETS, SEGMENT_TYPES } from './index'
 
 describe('shared type constants', () => {
   it('exposes all node statuses', () => {
-    expect(NODE_STATUSES).toEqual(['draft', 'streaming', 'complete', 'error'])
+    expect(NODE_STATUSES).toEqual([
+      'draft',
+      'streaming',
+      'complete',
+      'cancelled',
+      'error',
+    ])
   })
 
   it('exposes all segment types', () => {

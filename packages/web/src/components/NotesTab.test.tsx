@@ -50,6 +50,20 @@ describe('NotesTab create', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onCreateNote).not.toHaveBeenCalled()
   })
+
+  it('keeps the draft attachment when confirmed save fails', async () => {
+    const onCreateNote = vi.fn().mockRejectedValue(new Error('failed'))
+    render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={onCreateNote} />)
+    const input = screen.getByLabelText('new-note-input')
+    fireEvent.change(input, { target: { value: '不能丢的笔记' } })
+    fireEvent.paste(input, { clipboardData: { files: [new File(['x'], 'note.png', { type: 'image/png' })], items: [] } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onCreateNote).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+    await screen.findByText('笔记保存失败，文字和图片均已保留。')
+    expect(input).toHaveValue('不能丢的笔记')
+    expect(screen.getByTestId('chat-image-thumb')).toBeInTheDocument()
+  })
 })
 
 describe('NotesTab anchor highlight', () => {

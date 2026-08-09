@@ -24,6 +24,7 @@ describe('parallelAsk', () => {
     const run = parallelAsk({ api }, { answerNodeId: 'answer-1', question: 'q' }, {
       onChunk: vi.fn(), onDone: vi.fn(), onError: vi.fn(),
       onRoute: () => events.push('routed'),
+      onRouteError: vi.fn(),
     })
     await Promise.resolve()
     expect(events).toEqual(['chunk'])
@@ -33,16 +34,22 @@ describe('parallelAsk', () => {
     expect(events).toEqual(['chunk', 'route', 'routed'])
   })
 
-  it('silently degrades when routing rejects', async () => {
+  it('reports routing rejection separately without disturbing the answer', async () => {
     const onError = vi.fn()
+    const onRouteError = vi.fn()
+    const onDone = vi.fn()
     const api = {
       route: vi.fn(async () => { throw new Error('router unavailable') }),
-      streamAnswer: vi.fn(async () => {}),
+      streamAnswer: vi.fn(async (_id, _question, handlers) => {
+        handlers.onDone({ id: 'answer-1' } as NodeRow)
+      }),
     } as unknown as Parameters<typeof parallelAsk>[0]['api']
 
     await parallelAsk({ api }, { answerNodeId: 'answer-1', question: 'q' }, {
-      onChunk: vi.fn(), onDone: vi.fn(), onError, onRoute: vi.fn(),
+      onChunk: vi.fn(), onDone, onError, onRoute: vi.fn(), onRouteError,
     })
+    expect(onDone).toHaveBeenCalledOnce()
     expect(onError).not.toHaveBeenCalled()
+    expect(onRouteError).toHaveBeenCalledWith('router unavailable')
   })
 })

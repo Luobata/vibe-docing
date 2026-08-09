@@ -1,4 +1,10 @@
-export const NODE_STATUSES = ['draft', 'streaming', 'complete', 'error'] as const
+export const NODE_STATUSES = [
+  'draft',
+  'streaming',
+  'complete',
+  'cancelled',
+  'error',
+] as const
 export type NodeStatus = (typeof NODE_STATUSES)[number]
 
 export const ANNOTATION_KINDS = ['selection', 'whole'] as const

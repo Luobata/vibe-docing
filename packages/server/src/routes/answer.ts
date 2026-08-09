@@ -23,7 +23,19 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
       connection: 'keep-alive',
       'content-type': 'text/event-stream; charset=utf-8',
     })
+    const controller = new AbortController()
+    const abortOnRequestClose = (): void => {
+      if (request.raw?.aborted || request.raw?.socket?.destroyed) {
+        controller.abort()
+      }
+    }
+    const abortOnReplyClose = (): void => {
+      if (!reply.raw.writableEnded) controller.abort()
+    }
+    request.raw?.on?.('close', abortOnRequestClose)
+    reply.raw.on?.('close', abortOnReplyClose)
     const send = (event: unknown): void => {
+      if (controller.signal.aborted || reply.raw.destroyed) return
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
     }
 
@@ -33,18 +45,22 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
         app.deps.providerOverride,
       )
       const node = await app.deps.answer.generate(
-        { nodeId: existing.id, provider, userInput },
+        { nodeId: existing.id, provider, signal: controller.signal, userInput },
         (text) => send({ type: 'chunk', text }),
       )
       send({ type: 'done', node })
     } catch (error) {
-      send({
-        message: error instanceof Error ? error.message : 'answer failed',
-        node: app.deps.nodes.get(existing.id),
-        type: 'error',
-      })
+      if (!controller.signal.aborted) {
+        send({
+          message: error instanceof Error ? error.message : 'answer failed',
+          node: app.deps.nodes.get(existing.id),
+          type: 'error',
+        })
+      }
     } finally {
-      reply.raw.end()
+      request.raw?.off?.('close', abortOnRequestClose)
+      reply.raw.off?.('close', abortOnReplyClose)
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end()
     }
   })
 }

@@ -51,6 +51,40 @@ describe('TreeLauncher', () => {
     confirmSpy.mockRestore()
   })
 
+  it('moves a restored tree to the top of the active list', async () => {
+    const deletedTree = {
+      created_at: '2026-08-05T00:00:00.000Z',
+      id: 't-deleted',
+      is_deleted: 1,
+      root_node_id: 'root-deleted',
+      title: '可恢复',
+      updated_at: '2026-08-05T00:00:00.000Z',
+    } as const
+    const api = {
+      listDeletedTrees: vi.fn(async () => ({ trees: [deletedTree] })),
+      listTrees: vi.fn(async () => ({
+        trees: [{ ...deletedTree, id: 't-active', is_deleted: 0, title: '原有树' }],
+      })),
+      restoreTree: vi.fn(async () => ({
+        tree: {
+          ...deletedTree,
+          is_deleted: 0 as const,
+          updated_at: '2026-08-09T00:00:00.000Z',
+        },
+      })),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+
+    fireEvent.click(await screen.findByRole('button', { name: '恢复“可恢复”' }))
+
+    await waitFor(() => expect(api.restoreTree).toHaveBeenCalledWith('t-deleted'))
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      expect.stringContaining('可恢复'),
+      expect.stringContaining('原有树'),
+    ])
+    expect(screen.getByText('暂无已删除的树。')).toBeInTheDocument()
+  })
+
   it('renames a tree inline', async () => {
     const api = {
       listTrees: vi.fn(async () => ({ trees: [{ id: 't1', root_node_id: 'root', title: '旧名' }] })),

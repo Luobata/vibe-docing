@@ -50,6 +50,12 @@ export function createTreeRepo(db: Db, clock: Clock) {
       .all() as TreeRow[]
   }
 
+  function listDeleted(): TreeRow[] {
+    return db
+      .prepare('SELECT * FROM trees WHERE is_deleted = 1 ORDER BY updated_at DESC, id ASC')
+      .all() as TreeRow[]
+  }
+
   function softDelete(id: string): void {
     db.prepare('UPDATE trees SET is_deleted = 1, updated_at = ? WHERE id = ?')
       .run(clock.now(), id)
@@ -61,5 +67,12 @@ export function createTreeRepo(db: Db, clock: Clock) {
     return get(id)
   }
 
-  return { create, get, list, rename, softDelete }
+  function restore(id: string): TreeRow | undefined {
+    const result = db
+      .prepare('UPDATE trees SET is_deleted = 0, updated_at = ? WHERE id = ? AND is_deleted = 1')
+      .run(clock.now(), id)
+    return result.changes === 1 ? get(id) : undefined
+  }
+
+  return { create, get, list, listDeleted, rename, restore, softDelete }
 }

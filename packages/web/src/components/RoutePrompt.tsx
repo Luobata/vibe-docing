@@ -1,5 +1,30 @@
+import { useEffect, useRef } from 'react'
 import type { RouteCandidate } from '../api/types'
 import type { RouteUi } from '../flow/answer-flow'
+
+export function RouteErrorNotice({
+  message,
+  onDismiss,
+  timeoutMs = 8000,
+}: {
+  message: string
+  onDismiss(): void
+  timeoutMs?: number
+}) {
+  const onDismissRef = useRef(onDismiss)
+  onDismissRef.current = onDismiss
+  useEffect(() => {
+    const timer = setTimeout(() => onDismissRef.current(), timeoutMs)
+    return () => clearTimeout(timer)
+  }, [message, timeoutMs])
+
+  return (
+    <div aria-live="polite" className="route-prompt" role="status">
+      <span>{message}</span>
+      <button aria-label="关闭路由失败提示" onClick={onDismiss} type="button">关闭</button>
+    </div>
+  )
+}
 
 export function RoutePrompt({
   decision,

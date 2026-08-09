@@ -2,6 +2,7 @@ import type { NodeRow } from '@vibe/shared'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
+import type { RouteCandidate, RouteConvergence } from '../api/types'
 import { useWorkbench } from '../state/workbench-store'
 import { MainDoc } from './MainDoc'
 
@@ -10,6 +11,36 @@ function node(id: string, parentId: string | null): NodeRow {
     ai_response: JSON.stringify({ content: [{ content: [{ text: '讲了 Redis 和内存', type: 'text' }], type: 'paragraph' }], type: 'doc' }),
     created_at: '', id, is_deleted: 0, model_override: null, parent_id: parentId,
     sort_order: 0, status: 'complete', tree_id: 't', updated_at: '', user_input: 'Q',
+  }
+}
+
+function pasteImage(target: HTMLElement, name = 'shot.png'): void {
+  fireEvent.paste(target, {
+    clipboardData: {
+      files: [new File(['x'], name, { type: 'image/png' })],
+      items: [],
+    },
+  })
+}
+
+const mainRoute: RouteCandidate = {
+  label: '主文档',
+  refId: null,
+  score: 1,
+  target: 'main-continuation',
+}
+
+function convergence(
+  state: RouteConvergence['state'],
+  candidates: RouteCandidate[] = [],
+  chosen?: RouteCandidate,
+): RouteConvergence {
+  return {
+    candidates,
+    chosen,
+    fallback: mainRoute,
+    state,
+    thresholds: { highConfidence: 0.7, leadMargin: 0.2 },
   }
 }
 
@@ -67,6 +98,36 @@ describe('MainDoc fork flow', () => {
     })
   })
 
+  it('keeps fork text and image when creating the branch rejects', async () => {
+    const root = node('root', null)
+    const api = {
+      fork: vi.fn().mockRejectedValue(new Error('network failed')),
+      getNode: vi.fn(() => new Promise(() => {})),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    const body = screen.getByTestId('doc-view').querySelector('.doc-body')!
+    const range = document.createRange()
+    range.selectNodeContents(body)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.contextMenu(body)
+    fireEvent.click(screen.getByRole('menuitem', { name: '就此展开' }))
+
+    const input = screen.getByLabelText('fork-question')
+    fireEvent.change(input, { target: { value: '失败后继续编辑' } })
+    pasteImage(input, 'fork.png')
+    fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+
+    await screen.findByText('提交失败，文字和图片均已保留。')
+    expect(api.fork).toHaveBeenCalledOnce()
+    expect(input).toHaveValue('失败后继续编辑')
+    expect(screen.getByTestId('chat-image-thumb')).toBeInTheDocument()
+  })
+
   it('answers the forked child so it is not left empty (design §4③ step 4)', async () => {
     const root = node('root', null)
     const child = { ...node('child', 'root'), ai_response: null, status: 'draft' as const, user_input: null }
@@ -109,7 +170,7 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '就此展开' }))
 
     await waitFor(() => {
-      expect(streamAnswer).toHaveBeenCalledWith('child', '深入', expect.anything())
+      expect(streamAnswer).toHaveBeenCalledWith('child', '深入', expect.anything(), expect.any(AbortSignal))
     })
     await waitFor(() => {
       expect(useWorkbench.getState().nodesById['child']?.status).toBe('complete')
@@ -134,12 +195,57 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
     // first question fills the ROOT node itself — no fork, no empty root left behind
-    await waitFor(() => expect(api.streamAnswer).toHaveBeenCalledWith('root', '第一个问题', expect.anything()))
+    await waitFor(() => expect(api.streamAnswer).toHaveBeenCalledWith('root', '第一个问题', expect.anything(), expect.any(AbortSignal)))
     expect(api.fork).not.toHaveBeenCalled()
     await waitFor(() => expect(useWorkbench.getState().nodesById['root']?.user_input).toBe('第一个问题'))
     expect(useWorkbench.getState().nodesById['root']?.status).toBe('complete')
     // no separate transcript turn for the first question
     expect(screen.queryByTestId('turn-question')).toBeNull()
+  })
+
+  it('returns chat submission failures to the composer and clears only after retry succeeds', async () => {
+    const root = node('root', null)
+    const firstAnswer = { ...node('answer-1', 'root'), user_input: '失败也别丢' }
+    const secondAnswer = { ...node('answer-2', 'answer-1'), user_input: '失败也别丢' }
+    let forkCount = 0
+    const streamAnswer = vi.fn()
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockImplementationOnce(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...secondAnswer, status: 'complete' }))
+    const api = {
+      editNode: vi.fn(async (id: string) => ({
+        node: { ...(id === firstAnswer.id ? firstAnswer : secondAnswer), status: 'draft' as const },
+      })),
+      fork: vi.fn(async () => {
+        forkCount += 1
+        return {
+          annotation: { id: `whole-ann-${forkCount}` },
+          childNode: forkCount === 1 ? firstAnswer : secondAnswer,
+        }
+      }),
+      getNode: vi.fn(() => new Promise(() => {})),
+      route: vi.fn(async () => convergence('consistent', [mainRoute], mainRoute)),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    const input = screen.getByLabelText('chat-input')
+    fireEvent.change(input, { target: { value: '失败也别丢' } })
+    pasteImage(input)
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+
+    await screen.findByText('提交失败，文字和图片均已保留，请重试。')
+    expect(input).toHaveValue('失败也别丢')
+    expect(screen.getByTestId('chat-image-thumb')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByTestId('chat-image-thumb')).toBeNull())
+    expect(input).toHaveValue('')
   })
 
   it('forks a follow-up after the root already has an answer', async () => {
@@ -160,7 +266,7 @@ describe('MainDoc fork flow', () => {
 
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一个问题' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(api.streamAnswer).toHaveBeenNthCalledWith(1, 'root', '第一个问题', expect.anything()))
+    await waitFor(() => expect(api.streamAnswer).toHaveBeenNthCalledWith(1, 'root', '第一个问题', expect.anything(), expect.any(AbortSignal)))
 
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '追问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -182,6 +288,7 @@ describe('MainDoc fork flow', () => {
       editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
       fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
       getNode: vi.fn(() => new Promise(() => {})),
+      route: vi.fn(async () => convergence('consistent', [mainRoute], mainRoute)),
       streamAnswer,
     }
     useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
@@ -199,6 +306,185 @@ describe('MainDoc fork flow', () => {
     expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
     expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
     expect(screen.queryByRole('button', { name: '查看迁移位置' })).toBeNull()
+  })
+
+  it('runs answer and route in parallel, but waits for answer done before showing RoutePrompt', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '缓存怎么分层？' }
+    const candidate: RouteCandidate = {
+      label: '缓存细节',
+      refId: 'ann-cache',
+      score: 0.91,
+      target: 'new-branch',
+    }
+    let finishAnswer!: () => void
+    const answerGate = new Promise<void>((resolve) => { finishAnswer = resolve })
+    const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
+      onChunk(text: string): void
+      onDone(result: NodeRow): void
+    }) => {
+      handlers.onChunk('回答片段')
+      await answerGate
+      handlers.onDone({ ...answer, status: 'complete' })
+    })
+    const route = vi.fn(async () =>
+      convergence('high-confidence-elsewhere', [candidate], candidate),
+    )
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      route,
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '缓存怎么分层？' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => {
+      expect(streamAnswer).toHaveBeenCalledWith(
+        'answer',
+        '缓存怎么分层？',
+        expect.anything(),
+        expect.any(AbortSignal),
+      )
+      expect(route).toHaveBeenCalledWith('answer')
+    })
+    expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
+
+    await act(async () => finishAnswer())
+    expect(await screen.findByRole('button', { name: '搬过去' })).toBeInTheDocument()
+    expect(useWorkbench.getState().routeByNodeId.answer).toEqual(
+      convergence('high-confidence-elsewhere', [candidate], candidate),
+    )
+  })
+
+  it('does not render RoutePrompt when decideRouteUi keeps the answer in place', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '继续' }
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      route: vi.fn(async () => convergence('consistent', [mainRoute], mainRoute)),
+      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...answer, status: 'complete' })),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '继续' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => expect(api.route).toHaveBeenCalledWith('answer'))
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+    expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '选择回答落点' })).toBeNull()
+  })
+
+  it('accepts a route candidate, migrates the answer, and refreshes subdocTabs', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '缓存怎么分层？' }
+    const candidate: RouteCandidate = {
+      label: '缓存细节',
+      refId: 'ann-cache',
+      score: 0.91,
+      target: 'new-branch',
+    }
+    const moved = { ...answer, parent_id: 'root', sort_order: 1 }
+    const migrate = vi.fn(async () => ({ node: moved, path: [root, moved] }))
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      migrate,
+      route: vi.fn(async () => convergence('high-confidence-elsewhere', [candidate], candidate)),
+      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...answer, status: 'complete' })),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '缓存怎么分层？' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(await screen.findByRole('button', { name: '搬过去' }))
+
+    await waitFor(() => expect(migrate).toHaveBeenCalledWith('answer', {
+      newParentId: 'root',
+      seedText: '缓存怎么分层？',
+      target: 'new-branch',
+    }))
+    await waitFor(() => expect(useWorkbench.getState().subdocTabs).toContain('answer'))
+    expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
+  })
+
+  it('dismisses a route suggestion without migrating or changing subdocTabs', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '继续' }
+    const candidate: RouteCandidate = {
+      label: '缓存细节',
+      refId: 'ann-cache',
+      score: 0.91,
+      target: 'new-branch',
+    }
+    const migrate = vi.fn()
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      migrate,
+      route: vi.fn(async () => convergence('high-confidence-elsewhere', [candidate], candidate)),
+      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...answer, status: 'complete' })),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '继续' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(await screen.findByRole('button', { name: '留下' }))
+
+    expect(migrate).not.toHaveBeenCalled()
+    expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
+    expect(screen.queryByRole('button', { name: '留下' })).toBeNull()
+  })
+
+  it('shows a dismissible routing failure without interrupting the completed answer', async () => {
+    const root = node('root', null)
+    const answer = {
+      ...node('answer', 'root'),
+      ai_response: JSON.stringify({ content: [{ content: [{ text: '回答仍然显示', type: 'text' }], type: 'paragraph' }], type: 'doc' }),
+      user_input: '继续',
+    }
+    const api = {
+      editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      route: vi.fn(async () => { throw new Error('router unavailable') }),
+      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...answer, status: 'complete' })),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '继续' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByText('回答仍然显示')).toBeInTheDocument()
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('router unavailable')
+    expect(notice).toHaveTextContent('回答已保留')
+    expect(screen.getByLabelText('chat-input')).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭路由失败提示' }))
+    expect(screen.queryByText(/router unavailable/)).toBeNull()
+    expect(screen.getByText('回答仍然显示')).toBeInTheDocument()
   })
 
   it('edits a transcript turn question by its id and regenerates that turn', async () => {
@@ -237,8 +523,44 @@ describe('MainDoc fork flow', () => {
 
     // editNode targets the TURN id (not the last-only), then the turn regenerates
     await waitFor(() => expect(editNode).toHaveBeenCalledWith('answer', { userInput: '改后的轮次问题' }))
-    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer', '改后的轮次问题', expect.anything()))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer', '改后的轮次问题', expect.anything(), expect.any(AbortSignal)))
     await waitFor(() => expect(screen.getByTestId('turn-question')).toHaveTextContent('改后的轮次问题'))
+  })
+
+  it('keeps a transcript edit and image when regeneration rejects', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '原轮次问题' }
+    const editNode = vi.fn()
+      .mockResolvedValueOnce({ node: { ...answer, status: 'draft' as const } })
+      .mockRejectedValueOnce(new Error('network failed'))
+    const api = {
+      editNode,
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      route: vi.fn(async () => convergence('consistent', [mainRoute], mainRoute)),
+      streamAnswer: vi.fn(async (_id: string, _question: string, handlers: {
+        onDone(result: NodeRow): void
+      }) => handlers.onDone({ ...answer, status: 'complete' })),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '原轮次问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    const turn = await screen.findByRole('region', { name: '对话轮次' })
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+
+    fireEvent.click(within(turn).getByLabelText('编辑问题'))
+    const editor = within(turn).getByLabelText('edit-question')
+    fireEvent.change(editor, { target: { value: '保留这个修改' } })
+    pasteImage(editor, 'turn.png')
+    fireEvent.click(within(turn).getByRole('button', { name: '保存并重新生成' }))
+    fireEvent.click(within(turn).getByRole('button', { name: '仅提交文字' }))
+
+    await screen.findByText('重新生成失败，文字和图片均已保留。')
+    expect(editNode).toHaveBeenLastCalledWith('answer', { userInput: '保留这个修改' })
+    expect(editor).toHaveValue('保留这个修改')
+    expect(within(turn).getByTestId('chat-image-thumb')).toBeInTheDocument()
   })
 
   it('editing a NON-last turn keeps lastQuestion coupled to the last turn (retry uses the last question)', async () => {
@@ -278,13 +600,13 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(within(firstTurn).getByLabelText('编辑问题'))
     fireEvent.change(within(firstTurn).getByLabelText('edit-question'), { target: { value: '改后的第一问' } })
     fireEvent.click(within(firstTurn).getByRole('button', { name: '保存并重新生成' }))
-    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer1', '改后的第一问', expect.anything()))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer1', '改后的第一问', expect.anything(), expect.any(AbortSignal)))
     await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
 
     // retry the last turn: it must regenerate answer2 with the LAST question (第二问),
     // NOT the non-last turn's edited question — lastQuestion stayed coupled to the last turn.
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-    await waitFor(() => expect(streamAnswer).toHaveBeenLastCalledWith('answer2', '第二问', expect.anything()))
+    await waitFor(() => expect(streamAnswer).toHaveBeenLastCalledWith('answer2', '第二问', expect.anything(), expect.any(AbortSignal)))
   })
 
   it('chains follow-up turns by forking from the previous answer node', async () => {
@@ -341,17 +663,31 @@ describe('MainDoc fork flow', () => {
     await waitFor(() => expect(screen.queryByTestId('assistant-status')).toBeNull())
   })
 
-  it('stops streaming on demand and re-enables input', async () => {
+  it('aborts streaming, transitions cancelling to cancelled, and ignores late events', async () => {
     const root = node('root', null)
     const answer = { ...node('answer', 'root'), user_input: 'Q' }
+    let receivedSignal: AbortSignal | undefined
     const api = {
       editNode: vi.fn(async () => ({ node: { ...answer, status: 'draft' as const } })),
       fork: vi.fn(async () => ({ annotation: { id: 'a' }, childNode: answer })),
       getNode: vi.fn(() => new Promise(() => {})),
-      // never calls onDone → stays streaming until stopped
-      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: { onChunk(t: string): void }) => {
+      streamAnswer: vi.fn(async (_id: string, _q: string, handlers: {
+        onCancelled?(): void
+        onChunk(t: string): void
+        onDone(n: NodeRow): void
+      }, signal?: AbortSignal) => {
+        receivedSignal = signal
         handlers.onChunk('片段')
-        await new Promise<void>(() => {})
+        await new Promise<void>((resolve) => {
+          signal?.addEventListener('abort', () => {
+            setTimeout(() => {
+              handlers.onCancelled?.()
+              handlers.onChunk('不应追加')
+              handlers.onDone({ ...answer, status: 'complete' })
+              resolve()
+            }, 0)
+          }, { once: true })
+        })
       }),
     }
     useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
@@ -360,7 +696,14 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
     fireEvent.click(await screen.findByRole('button', { name: '停止' }))
-    await waitFor(() => expect(screen.queryByTestId('assistant-status')).toBeNull())
+    expect(receivedSignal?.aborted).toBe(true)
+    expect(screen.getByTestId('assistant-status')).toHaveTextContent('正在停止生成')
+    await waitFor(() => expect(screen.getByText('已停止生成')).toBeInTheDocument())
+    expect(screen.queryByTestId('assistant-status')).toBeNull()
+    const views = screen.getAllByTestId('doc-view')
+    const cancelledView = views[views.length - 1]
+    expect(cancelledView).toHaveTextContent('片段')
+    expect(cancelledView).not.toHaveTextContent('不应追加')
     expect(screen.getByLabelText('chat-input')).not.toBeDisabled()
   })
 
@@ -391,7 +734,7 @@ describe('MainDoc fork flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
     // retry re-runs streamAnswer against the SAME answer node with the SAME question
-    await waitFor(() => expect(streamAnswer).toHaveBeenNthCalledWith(2, 'answer', '会失败的问题', expect.anything()))
+    await waitFor(() => expect(streamAnswer).toHaveBeenNthCalledWith(2, 'answer', '会失败的问题', expect.anything(), expect.any(AbortSignal)))
   })
 
   it('edits the main question and regenerates', async () => {
@@ -408,5 +751,26 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存并重新生成' }))
     await waitFor(() => expect(editNode).toHaveBeenCalledWith('root', { userInput: '改后的主问题' }))
     expect(streamAnswer).toHaveBeenCalled()
+  })
+
+  it('keeps the main question edit and image when regeneration rejects', async () => {
+    const root = node('root', null)
+    const api = {
+      editNode: vi.fn().mockRejectedValue(new Error('network failed')),
+      getNode: vi.fn(() => new Promise(() => {})),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    fireEvent.click(screen.getByLabelText('编辑问题'))
+    const editor = screen.getByLabelText('edit-question')
+    fireEvent.change(editor, { target: { value: '主问题修改要保留' } })
+    pasteImage(editor, 'main-question.png')
+    fireEvent.click(screen.getByRole('button', { name: '保存并重新生成' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+
+    await screen.findByText('重新生成失败，文字和图片均已保留。')
+    expect(editor).toHaveValue('主问题修改要保留')
+    expect(screen.getByTestId('chat-image-thumb')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AnnotationBubble } from './AnnotationBubble'
 
@@ -48,5 +48,17 @@ describe('AnnotationBubble image+keyboard', () => {
     fireEvent.change(q, { target: { value: '继续追问' } })
     fireEvent.keyDown(q, { key: 'Enter' })
     expect(onForkExpand).toHaveBeenCalledWith('继续追问')
+  })
+  it('asks before discarding a note image and only clears it after success', async () => {
+    const onCreateNote = vi.fn().mockResolvedValue(undefined)
+    render(<AnnotationBubble onCreateNote={onCreateNote} onDismiss={() => {}} onForkExpand={() => {}} selection={sel} />)
+    const note = screen.getByLabelText('note')
+    fireEvent.change(note, { target: { value: '带图笔记' } })
+    fireEvent.paste(note, { clipboardData: { files: [new File(['x'], 'note.png', { type: 'image/png' })], items: [] } })
+    fireEvent.click(screen.getByRole('button', { name: '保存笔记' }))
+    expect(onCreateNote).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+    await waitFor(() => expect(screen.queryByTestId('chat-image-thumb')).toBeNull())
+    expect(onCreateNote).toHaveBeenCalledWith('带图笔记')
   })
 })

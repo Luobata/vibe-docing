@@ -68,6 +68,36 @@ describe('TreeRepo', () => {
     expect(repo.get(tree.id)).toBeUndefined()
   })
 
+  it('round-trips a soft-deleted tree through the deleted list and restore', () => {
+    const db = openMemoryDb()
+    openDatabases.push(db)
+    const initial = createTreeRepo(db, fixedClock('2026-08-05T00:00:00.000Z'))
+    const { tree } = initial.create('可恢复')
+    createTreeRepo(db, fixedClock('2026-08-06T00:00:00.000Z')).create('保留')
+
+    initial.softDelete(tree.id)
+    expect(initial.listDeleted()).toEqual([
+      expect.objectContaining({ id: tree.id, is_deleted: 1 }),
+    ])
+    expect(initial.list().some((item) => item.id === tree.id)).toBe(false)
+
+    const restored = createTreeRepo(
+      db,
+      fixedClock('2026-08-07T00:00:00.000Z'),
+    ).restore(tree.id)
+
+    expect(restored).toMatchObject({
+      id: tree.id,
+      is_deleted: 0,
+      updated_at: '2026-08-07T00:00:00.000Z',
+    })
+    expect(initial.listDeleted()).toHaveLength(0)
+    expect(initial.list().map((item) => item.id)).toEqual([
+      tree.id,
+      expect.any(String),
+    ])
+  })
+
   it('renames a tree title', () => {
     const db = openMemoryDb()
     openDatabases.push(db)

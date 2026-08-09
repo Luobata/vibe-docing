@@ -1,0 +1,21 @@
+version: 1
+project:
+  id: vibe-docing
+  name: vibe-docing
+  scope: repository
+  description: 通过 MCP 发现并在 Workbench 中显式接入的本地项目。
+connector:
+  kind: mcp
+  config:
+    discovery: passive
+roles:
+  project-member:
+    displayName: 项目协作
+    description: 在当前项目范围内完成已经确认的研发工作。
+    instructions: |
+      Work only within this project's repository and the confirmed task scope.
+      Keep changes reviewable, preserve unrelated work, and report validation evidence.
+    requiredSkills: []
+    optionalSkills: []
+    permissions:
+      write: project

@@ -12,8 +12,10 @@ export function TreeLauncher() {
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [trees, setTrees] = useState<TreeRow[]>([])
+  const [deletedTrees, setDeletedTrees] = useState<TreeRow[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [restoringId, setRestoringId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -22,8 +24,14 @@ export function TreeLauncher() {
     void listTrees()
       .then((result) => { if (active) setTrees(result.trees) })
       .catch(() => { if (active) setError('树列表加载失败，仍可新建。') })
+    const listDeletedTrees = (api as Partial<Api>).listDeletedTrees
+    if (listDeletedTrees) {
+      void listDeletedTrees()
+        .then((result) => { if (active) setDeletedTrees(result.trees) })
+        .catch(() => { if (active) setError('已删除的树加载失败，请稍后重试。') })
+    }
     return () => { active = false }
-  }, [api])
+  }, [api, treeId])
 
   async function create(): Promise<void> {
     const value = title.trim()
@@ -63,9 +71,33 @@ export function TreeLauncher() {
     setTrees((current) => current.filter((item) => item.id !== tree.id))
     try {
       await api.deleteTree(tree.id)
+      setDeletedTrees((current) => [
+        { ...tree, is_deleted: 1 },
+        ...current.filter((item) => item.id !== tree.id),
+      ])
+      if (useWorkbench.getState().treeId === tree.id) {
+        useWorkbench.getState().reset()
+      }
     } catch {
       setTrees((current) => [tree, ...current])
       setError('删除树失败，请稍后重试。')
+    }
+  }
+
+  async function restore(tree: TreeRow): Promise<void> {
+    setRestoringId(tree.id)
+    setError(null)
+    try {
+      const result = await api.restoreTree(tree.id)
+      setTrees((current) => [
+        result.tree,
+        ...current.filter((item) => item.id !== result.tree.id),
+      ])
+      setDeletedTrees((current) => current.filter((item) => item.id !== tree.id))
+    } catch {
+      setError(`恢复树“${tree.title}”失败，请稍后重试。`)
+    } finally {
+      setRestoringId(null)
     }
   }
 
@@ -143,6 +175,28 @@ export function TreeLauncher() {
           ))}
         </ul>
       )}
+      <section className="deleted-tree-section" aria-labelledby="deleted-tree-heading">
+        <h2 id="deleted-tree-heading">已删除的树</h2>
+        {deletedTrees.length > 0 ? (
+          <ul aria-label="已删除的树">
+            {deletedTrees.map((tree) => (
+              <li className="deleted-tree-item" key={tree.id}>
+                <span title={tree.title}>{tree.title}</span>
+                <button
+                  aria-label={`恢复“${tree.title}”`}
+                  disabled={restoringId === tree.id}
+                  onClick={() => { void restore(tree) }}
+                  type="button"
+                >
+                  {restoringId === tree.id ? '恢复中…' : '恢复'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="tree-list-empty">暂无已删除的树。</p>
+        )}
+      </section>
       {error && <p role="alert">{error}</p>}
     </section>
   )

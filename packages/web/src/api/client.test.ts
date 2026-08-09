@@ -2,6 +2,78 @@ import { describe, expect, it, vi } from 'vitest'
 import { createApi } from './client'
 
 describe('api client', () => {
+  it('omits json content-type from requests without a body', async () => {
+    const requests: RequestInit[] = []
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      requests.push(init ?? {})
+      return new Response('{}', {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+    const api = createApi({ fetchImpl })
+
+    await api.deleteNode('node-1')
+    await api.deleteTree('tree-1')
+    await api.restoreNode('node-1')
+    await api.revert('node-1', 1)
+    await api.route('answer-1')
+
+    expect(requests).toHaveLength(5)
+    for (const request of requests) {
+      expect(request.body).toBeUndefined()
+      expect(new Headers(request.headers).has('content-type')).toBe(false)
+    }
+  })
+
+  it('keeps json content-type on requests with a body', async () => {
+    let request: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      request = init
+      return new Response(JSON.stringify({ rootNode: {}, tree: {} }), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+
+    await createApi({ fetchImpl }).createTree('tree')
+
+    expect(request?.body).toBe(JSON.stringify({ title: 'tree' }))
+    expect(new Headers(request?.headers).get('content-type')).toBe(
+      'application/json',
+    )
+  })
+
+  it('lists deleted trees and restores a tree with a bodyless POST', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify(url.endsWith('/restore')
+        ? { tree: { id: 'tree-1' } }
+        : { trees: [{ id: 'tree-1' }] }), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      }),
+    )
+    const fetchImpl = fetchMock as unknown as typeof fetch
+    const api = createApi({ fetchImpl })
+
+    await expect(api.listDeletedTrees()).resolves.toMatchObject({
+      trees: [{ id: 'tree-1' }],
+    })
+    await expect(api.restoreTree('tree-1')).resolves.toMatchObject({
+      tree: { id: 'tree-1' },
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/trees/deleted', expect.any(Object))
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/trees/tree-1/restore',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    const restoreInit = fetchMock.mock.calls[1]?.[1]
+    expect(restoreInit?.body).toBeUndefined()
+    expect(new Headers(restoreInit?.headers).has('content-type')).toBe(false)
+  })
+
   it('wraps tree creation and node-scoped routing', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       const payload = url.endsWith('/route')
@@ -64,6 +136,81 @@ describe('api client', () => {
     expect(chunks).toEqual(['A', 'B'])
     expect(doneNodeId).toBe('n1')
     expect(errors).toEqual(['late warning'])
+  })
+
+  it('passes the abort signal to fetch and stops dispatching stream chunks', async () => {
+    const encoder = new TextEncoder()
+    let finishRead: ((result: ReadableStreamReadResult<Uint8Array>) => void) | null = null
+    const reader = {
+      cancel: vi.fn(async () => {
+        finishRead?.({ done: true, value: undefined })
+      }),
+      read: vi.fn()
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode('data: {"type":"chunk","text":"A"}\n\n'),
+        })
+        .mockImplementation(() => new Promise((resolve) => {
+          finishRead = resolve
+        })),
+    }
+    let requestSignal: AbortSignal | null | undefined
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return {
+        body: { getReader: () => reader },
+        ok: true,
+        status: 200,
+      } as unknown as Response
+    }) as unknown as typeof fetch
+    const controller = new AbortController()
+    const chunks: string[] = []
+    const onCancelled = vi.fn()
+    let sawFirstChunk: (() => void) | null = null
+    const firstChunk = new Promise<void>((resolve) => { sawFirstChunk = resolve })
+
+    const streaming = createApi({ fetchImpl }).streamAnswer('n1', 'q', {
+      onCancelled,
+      onChunk(text) {
+        chunks.push(text)
+        sawFirstChunk?.()
+      },
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }, controller.signal)
+    await firstChunk
+    controller.abort()
+    await streaming
+
+    expect(requestSignal).toBe(controller.signal)
+    expect(reader.cancel).toHaveBeenCalledOnce()
+    expect(chunks).toEqual(['A'])
+    expect(onCancelled).toHaveBeenCalledOnce()
+  })
+
+  it('routes AbortError to onCancelled without calling onError', async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('stopped', 'AbortError'))
+        }, { once: true })
+      }),
+    ) as unknown as typeof fetch
+    const controller = new AbortController()
+    const onCancelled = vi.fn()
+    const onError = vi.fn()
+
+    const streaming = createApi({ fetchImpl }).streamAnswer('n1', 'q', {
+      onCancelled,
+      onChunk: vi.fn(),
+      onDone: vi.fn(),
+      onError,
+    }, controller.signal)
+    controller.abort()
+    await streaming
+
+    expect(onCancelled).toHaveBeenCalledOnce()
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('getSettings GETs /api/settings', async () => {

@@ -3,12 +3,20 @@ export function AssistantStatus({
   phase,
 }: {
   onStop(): void
-  phase: 'replying' | 'thinking'
+  phase: 'cancelling' | 'replying' | 'thinking'
 }) {
   return (
     <div className="assistant-status" data-testid="assistant-status" role="status">
-      <span>{phase === 'thinking' ? 'AI 正在思考…' : 'AI 正在回复…'}</span>
-      <button onClick={onStop} type="button">停止</button>
+      <span>
+        {phase === 'thinking'
+          ? 'AI 正在思考…'
+          : phase === 'replying'
+            ? 'AI 正在回复…'
+            : '正在停止生成…'}
+      </span>
+      <button disabled={phase === 'cancelling'} onClick={onStop} type="button">
+        {phase === 'cancelling' ? '停止中' : '停止'}
+      </button>
     </div>
   )
 }

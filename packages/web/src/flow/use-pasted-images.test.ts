@@ -22,4 +22,12 @@ describe('usePastedImages', () => {
     expect(result.current.images).toHaveLength(0)
     expect(globalThis.URL.revokeObjectURL).toHaveBeenCalled()
   })
+  it('clears attachments when its scope key changes', () => {
+    const { result, rerender } = renderHook(({ scope }) => usePastedImages(scope), { initialProps: { scope: 'node-a' } })
+    act(() => result.current.addFiles([imgFile()]))
+    expect(result.current.images).toHaveLength(1)
+    rerender({ scope: 'node-b' })
+    expect(result.current.images).toHaveLength(0)
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:x')
+  })
 })

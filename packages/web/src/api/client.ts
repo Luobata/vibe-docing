@@ -20,9 +20,16 @@ export class ApiError extends Error {
 }
 
 export interface AnswerStreamHandlers {
+  onCancelled?(): void
   onChunk(text: string): void
   onDone(node: NodeRow): void
   onError(message: string): void
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true ||
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
 }
 
 export function createApi(options?: {
@@ -36,7 +43,9 @@ export function createApi(options?: {
     const response = await fetchImpl(`${base}${path}`, {
       ...init,
       headers: {
-        'content-type': 'application/json',
+        ...(init?.body === undefined
+          ? {}
+          : { 'content-type': 'application/json' }),
         ...(init?.headers ?? {}),
       },
     })
@@ -141,6 +150,7 @@ export function createApi(options?: {
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
     getTree: (treeId: string) =>
       json<{ nodes: NodeRow[]; tree: TreeRow }>(`/trees/${treeId}`),
+    listDeletedTrees: () => json<{ trees: TreeRow[] }>('/trees/deleted'),
     listTrees: () => json<{ trees: TreeRow[] }>('/trees'),
     renameTree: (treeId: string, title: string) =>
       json<{ tree: TreeRow }>(`/trees/${treeId}`, {
@@ -164,6 +174,8 @@ export function createApi(options?: {
       }),
     restoreNode: (nodeId: string) =>
       json<{ ok: true }>(`/nodes/${nodeId}/restore`, { method: 'POST' }),
+    restoreTree: (treeId: string) =>
+      json<{ tree: TreeRow }>(`/trees/${treeId}/restore`, { method: 'POST' }),
     revert: (nodeId: string, versionNo: number) =>
       json<{ node: NodeRow }>(`/nodes/${nodeId}/versions/${versionNo}/revert`, {
         method: 'POST',
@@ -174,28 +186,54 @@ export function createApi(options?: {
       nodeId: string,
       userInput: string,
       handlers: AnswerStreamHandlers,
+      signal?: AbortSignal,
     ): Promise<void> {
-      const response = await fetchImpl(`${base}/nodes/${nodeId}/answer`, {
-        body: JSON.stringify({ userInput }),
-        headers: { 'content-type': 'application/json' },
-        method: 'POST',
-      })
-      if (!response.ok || !response.body) {
-        throw new ApiError(response.status, await response.text())
-      }
+      let detachAbort: (() => void) | undefined
+      try {
+        const response = await fetchImpl(`${base}/nodes/${nodeId}/answer`, {
+          body: JSON.stringify({ userInput }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          signal,
+        })
+        if (!response.ok || !response.body) {
+          throw new ApiError(response.status, await response.text())
+        }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        buffer += decoder.decode(value, { stream: !done })
-        const frames = buffer.split(/\r?\n\r?\n/)
-        buffer = frames.pop() ?? ''
-        for (const frame of frames) handleSseFrame(frame, handlers)
-        if (done) break
+        const reader = response.body.getReader()
+        const cancelReader = (): void => {
+          void reader.cancel(signal?.reason).catch(() => {})
+        }
+        signal?.addEventListener('abort', cancelReader, { once: true })
+        detachAbort = () => signal?.removeEventListener('abort', cancelReader)
+        if (signal?.aborted) cancelReader()
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+        for (;;) {
+          signal?.throwIfAborted()
+          const { done, value } = await reader.read()
+          signal?.throwIfAborted()
+          buffer += decoder.decode(value, { stream: !done })
+          const frames = buffer.split(/\r?\n\r?\n/)
+          buffer = frames.pop() ?? ''
+          for (const frame of frames) {
+            signal?.throwIfAborted()
+            handleSseFrame(frame, handlers)
+          }
+          if (done) break
+        }
+        signal?.throwIfAborted()
+        if (buffer.trim()) handleSseFrame(buffer, handlers)
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          handlers.onCancelled?.()
+          return
+        }
+        throw error
+      } finally {
+        detachAbort?.()
       }
-      if (buffer.trim()) handleSseFrame(buffer, handlers)
     },
   }
 }

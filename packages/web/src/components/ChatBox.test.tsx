@@ -1,8 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import type { NodeRow } from '@vibe/shared'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useWorkbench } from '../state/workbench-store'
 import { ChatBox } from './ChatBox'
 
+function node(id: string): NodeRow {
+  return { ai_response: null, created_at: '', id, is_deleted: 0, model_override: null, parent_id: null, sort_order: 0, status: 'complete', tree_id: id, updated_at: '', user_input: id }
+}
+
 describe('ChatBox', () => {
+  beforeEach(() => useWorkbench.getState().reset())
   it('submits trimmed text and clears the composer', () => {
     const onSubmit = vi.fn()
     render(<ChatBox disabled={false} onSubmit={onSubmit} />)
@@ -61,18 +68,43 @@ describe('ChatBox', () => {
     expect(screen.queryByTestId('chat-image-thumb')).toBeNull()
   })
 
-  it('submits plain text with a degrade hint when images are attached', () => {
-    const onSubmit = vi.fn()
+  it('requires confirmation and clears images only after a successful submit', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(<ChatBox disabled={false} onSubmit={onSubmit} />)
     const input = screen.getByLabelText('chat-input')
     const file = new File(['x'], 'shot.png', { type: 'image/png' })
     fireEvent.paste(input, { clipboardData: { files: [file], items: [] } })
     fireEvent.change(input, { target: { value: '看这张图' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    // still submits plain text only — no multimodal payload
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog', { name: '确认仅提交文字' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '仅提交文字' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
     expect(onSubmit).toHaveBeenCalledWith('看这张图')
-    expect(screen.getByTestId('image-degrade-hint')).toBeInTheDocument()
-    // thumbnails cleared after submit
+    await waitFor(() => expect(screen.queryByTestId('chat-image-thumb')).toBeNull())
+  })
+
+  it('retains text and images when the confirmed submit fails', async () => {
+    const onSubmit = vi.fn().mockRejectedValue(new Error('offline'))
+    render(<ChatBox disabled={false} onSubmit={onSubmit} />)
+    const input = screen.getByLabelText('chat-input')
+    fireEvent.paste(input, { clipboardData: { files: [new File(['x'], 'shot.png', { type: 'image/png' })], items: [] } })
+    fireEvent.change(input, { target: { value: '失败也别丢' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅提交文字' }))
+    await screen.findByText('提交失败，文字和图片均已保留，请重试。')
+    expect(input).toHaveValue('失败也别丢')
+    expect(screen.getByTestId('chat-image-thumb')).toBeInTheDocument()
+  })
+
+  it('remounts its composer state when the main node changes', () => {
+    act(() => useWorkbench.getState().loadTree({ nodes: [node('one')], rootNodeId: 'one', treeId: 'tree-one' }))
+    render(<ChatBox disabled={false} onSubmit={() => {}} />)
+    const input = screen.getByLabelText('chat-input')
+    fireEvent.change(input, { target: { value: 'tree one draft' } })
+    fireEvent.paste(input, { clipboardData: { files: [new File(['x'], 'one.png', { type: 'image/png' })], items: [] } })
+    act(() => useWorkbench.getState().loadTree({ nodes: [node('two')], rootNodeId: 'two', treeId: 'tree-two' }))
+    expect(screen.getByLabelText('chat-input')).toHaveValue('')
     expect(screen.queryByTestId('chat-image-thumb')).toBeNull()
   })
 })

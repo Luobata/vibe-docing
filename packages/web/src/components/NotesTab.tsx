@@ -3,19 +3,24 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { usePastedImages } from '../flow/use-pasted-images'
 import { useWorkbench } from '../state/workbench-store'
 import { ImageThumbs } from './ImageThumbs'
+import { ImageDiscardConfirm } from './ChatBox'
 
 export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
   annotations: AnnotationRow[]
   onJump(annotationId: string): void
-  onCreateNote(note: string): void
+  onCreateNote(note: string): void | Promise<void>
   canCreateNote: boolean
 }) {
   const [value, setValue] = useState('')
   const [flashId, setFlashId] = useState<string | null>(null)
-  const [showHint, setShowHint] = useState(false)
+  const [pendingNote, setPendingNote] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const anchoredNoteId = useWorkbench((s) => s.anchoredNoteId)
   const listRef = useRef<HTMLUListElement>(null)
-  const { images, removeImage, clear, handlePaste, handleDrop } = usePastedImages()
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const mainNodeId = useWorkbench((state) => state.mainNodeId)
+  const { images, removeImage, clear, handlePaste, handleDrop } = usePastedImages(mainNodeId)
   const notes = annotations.filter((a) => a.child_node_id === null && a.note)
 
   // One-shot anchor highlight: flash + scroll the matching note, then clear the
@@ -34,37 +39,55 @@ export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
     return () => clearTimeout(t)
   }, [flashId])
 
+  async function commit(note: string, discardImages: boolean): Promise<void> {
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const result = onCreateNote(note)
+      if (result) await result
+      if (discardImages) clear()
+      setValue('')
+      setPendingNote(null)
+    } catch {
+      setPendingNote(null)
+      setSubmitError('笔记保存失败，文字和图片均已保留。')
+      setTimeout(() => inputRef.current?.focus(), 0)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function requestSubmit(): void {
+    if (!canCreateNote || submitting) return
+    const note = value.trim()
+    if (!note) return
+    if (images.length > 0) { setPendingNote(note); return }
+    void commit(note, false)
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key !== 'Enter') return
     if (event.nativeEvent.isComposing) return
     if (event.shiftKey) return
     event.preventDefault()
-    if (!canCreateNote) return
-    const note = value.trim()
-    if (!note) return
-    // v1: pasted images are a local-only affordance — surface the degrade hint
-    // (mirrors ChatBox) so images don't just vanish silently on submit.
-    if (images.length > 0) setShowHint(true)
-    onCreateNote(note)
-    setValue('')
-    clear()
+    requestSubmit()
   }
 
   return (
     <div className="notes-tab">
       <div className="new-note">
         <ImageThumbs images={images} onRemove={removeImage} />
-        {showHint && (
-          <p className="image-degrade-hint" data-testid="image-degrade-hint">图片仅本地保存，模型暂不读图。</p>
-        )}
+        {pendingNote && <ImageDiscardConfirm busy={submitting} onCancel={() => setPendingNote(null)} onConfirm={() => { void commit(pendingNote, true) }} returnFocusRef={inputRef} />}
+        {submitError && <p className="inline-error image-submit-error" role="alert">{submitError}</p>}
         <textarea
           aria-label="new-note-input"
-          disabled={!canCreateNote}
+          disabled={!canCreateNote || submitting}
           onChange={(event) => setValue(event.target.value)}
           onDrop={handleDrop}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="记一条笔记…  Enter 保存 / Shift+Enter 换行 · 可粘贴图片"
+          ref={inputRef}
           value={value}
         />
       </div>

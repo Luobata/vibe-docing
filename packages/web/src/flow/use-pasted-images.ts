@@ -2,15 +2,24 @@ import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from
 
 export interface PastedImage { id: string; name: string; url: string }
 
-export function usePastedImages() {
+export function usePastedImages(resetKey?: string | null) {
   const [images, setImages] = useState<PastedImage[]>([])
   const seq = useRef(0)
+  const resetKeyRef = useRef(resetKey)
   // Hold the live images in a ref and revoke ONLY on unmount. Keying the cleanup
   // on [images] would revoke a still-mounted thumbnail's URL on every add.
   // Per-item revokes remain in removeImage/clear for explicit disposal.
   const imagesRef = useRef(images)
   imagesRef.current = images
   useEffect(() => () => { for (const i of imagesRef.current) URL.revokeObjectURL(i.url) }, [])
+  useEffect(() => {
+    if (resetKeyRef.current === resetKey) return
+    resetKeyRef.current = resetKey
+    setImages((current) => {
+      for (const image of current) URL.revokeObjectURL(image.url)
+      return []
+    })
+  }, [resetKey])
   function addFiles(files: FileList | File[]): void {
     const picked: PastedImage[] = []
     for (const file of Array.from(files)) {

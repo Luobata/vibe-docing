@@ -1,10 +1,21 @@
 import { createRequire } from 'node:module'
-import { createServer, type Server, type ServerResponse } from 'node:http'
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http'
 
 export interface AppRequest {
   body: unknown
   method: string
   params: Record<string, string>
+  raw?: {
+    aborted?: boolean
+    on?(event: 'close', listener: () => void): void
+    off?(event: 'close', listener: () => void): void
+    socket?: { destroyed?: boolean }
+  }
   url: string
 }
 
@@ -13,9 +24,13 @@ export interface AppReply {
   header(name: string, value: string): AppReply
   hijack(): AppReply
   raw: {
+    destroyed?: boolean
     end(chunk?: string): void
+    on?(event: 'close', listener: () => void): void
+    off?(event: 'close', listener: () => void): void
     write(chunk: string): boolean
     writeHead(statusCode: number, headers?: Record<string, string>): void
+    writableEnded?: boolean
   }
   send(payload: unknown): AppReply
 }
@@ -115,6 +130,7 @@ function createFallbackApp(): AppInstance {
     rawUrl: string,
     payload: unknown,
     target?: ServerResponse,
+    rawRequest?: IncomingMessage,
   ): Promise<DispatchState> {
     const url = new URL(rawUrl, 'http://127.0.0.1').pathname
     const route = routes.find((candidate) => {
@@ -154,6 +170,9 @@ function createFallbackApp(): AppInstance {
         return reply
       },
       raw: {
+        get destroyed() {
+          return target?.destroyed ?? false
+        },
         end(chunk = '') {
           if (chunk) {
             state.body += chunk
@@ -161,6 +180,12 @@ function createFallbackApp(): AppInstance {
           }
           state.ended = true
           target?.end()
+        },
+        on(event, listener) {
+          target?.on(event, listener)
+        },
+        off(event, listener) {
+          target?.off(event, listener)
         },
         write(chunk) {
           state.body += chunk
@@ -173,6 +198,9 @@ function createFallbackApp(): AppInstance {
           }
           target?.writeHead(statusCode, state.headers)
         },
+        get writableEnded() {
+          return target?.writableEnded ?? state.ended
+        },
       },
       send(body) {
         state.body = serialize(body, state.headers)
@@ -183,7 +211,7 @@ function createFallbackApp(): AppInstance {
 
     try {
       const result = await route.handler(
-        { body: payload, method: method.toUpperCase(), params, url },
+        { body: payload, method: method.toUpperCase(), params, raw: rawRequest, url },
         reply,
       )
       if (!state.sent && !state.ended && result !== undefined && result !== reply) {
@@ -246,7 +274,13 @@ function createFallbackApp(): AppInstance {
             body = rawBody
           }
         }
-        await dispatch(request.method ?? 'GET', request.url ?? '/', body, response)
+        await dispatch(
+          request.method ?? 'GET',
+          request.url ?? '/',
+          body,
+          response,
+          request,
+        )
       })
       await new Promise<void>((resolve, reject) => {
         server!.once('error', reject)

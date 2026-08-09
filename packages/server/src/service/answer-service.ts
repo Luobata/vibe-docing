@@ -18,6 +18,12 @@ interface SettingsPort {
 
 const MAX_TOOL_ROUNDS = 12
 
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true ||
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+}
+
 export interface GenerateAnswerInput {
   nodeId: string
   provider: Provider
@@ -72,6 +78,7 @@ export function createAnswerService(deps: {
       for await (const chunk of input.provider.stream(messages, {
         signal: input.signal,
       })) {
+        input.signal?.throwIfAborted()
         accumulated += chunk
         deps.nodes.updateContent(input.nodeId, {
           aiResponse: plainTextToProseMirror(accumulated),
@@ -80,8 +87,16 @@ export function createAnswerService(deps: {
         onChunk(chunk)
       }
 
+      input.signal?.throwIfAborted()
       return complete()
     } catch (error) {
+      if (isAbortError(error, input.signal)) {
+        deps.nodes.updateContent(input.nodeId, {
+          aiResponse: plainTextToProseMirror(accumulated),
+          status: 'cancelled',
+        })
+        throw error
+      }
       const node = deps.nodes.updateContent(input.nodeId, {
         aiResponse: plainTextToProseMirror(accumulated),
         status: 'error',
@@ -119,6 +134,7 @@ export function createAnswerService(deps: {
         for await (const event of streamWithTools(messages, TOOL_SCHEMAS, {
           signal: loopInput.signal,
         })) {
+          loopInput.signal?.throwIfAborted()
           if (event.type === 'text') {
             roundText += event.text
           } else {
@@ -130,6 +146,7 @@ export function createAnswerService(deps: {
           }
         }
 
+        loopInput.signal?.throwIfAborted()
         if (toolCalls.length === 0) {
           // 最终轮：把缓冲的文本一次性作为正文提交并流出。
           accumulated = roundText
@@ -152,6 +169,7 @@ export function createAnswerService(deps: {
           })),
         })
         for (const call of toolCalls) {
+          loopInput.signal?.throwIfAborted()
           messages.push({
             content: dispatchTool(root, call.name, call.arguments),
             role: 'tool',
@@ -168,6 +186,7 @@ export function createAnswerService(deps: {
       for await (const chunk of loopInput.provider.stream(messages, {
         signal: loopInput.signal,
       })) {
+        loopInput.signal?.throwIfAborted()
         accumulated += chunk
         deps.nodes.updateContent(loopInput.nodeId, {
           aiResponse: plainTextToProseMirror(accumulated),
@@ -175,6 +194,7 @@ export function createAnswerService(deps: {
         })
         emit(chunk)
       }
+      loopInput.signal?.throwIfAborted()
       return finish()
     }
   }

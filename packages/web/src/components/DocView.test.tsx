@@ -1,7 +1,9 @@
 import type { AnnotationRow, NodeRow } from '@vibe/shared'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { DocView } from './DocView'
+import { SelectionMenu } from './SelectionMenu'
 
 function node(status: NodeRow['status'] = 'complete'): NodeRow {
   return {
@@ -22,6 +24,22 @@ function annotation(): AnnotationRow {
     anchor_from: 0, anchor_to: 3, child_node_id: null, created_at: '', id: 'ann-1',
     kind: 'selection', node_id: 'n', note: null, quoted_text: '第一段',
   }
+}
+
+function SelectionHarness() {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <>
+      <DocView
+        annotations={[]}
+        node={node()}
+        onContextSelect={(_selection, x, y) => setMenu({ x, y })}
+        onRetry={() => {}}
+        onSelect={() => {}}
+      />
+      {menu && <SelectionMenu onClose={() => setMenu(null)} onPick={() => {}} x={menu.x} y={menu.y} />}
+    </>
+  )
 }
 
 describe('DocView', () => {
@@ -61,6 +79,22 @@ describe('DocView', () => {
     expect(onRetry).toHaveBeenCalledOnce()
   })
 
+  it('shows stopped generation state with a regenerate action', () => {
+    const onRetry = vi.fn()
+    render(
+      <DocView
+        annotations={[]}
+        node={node('cancelled')}
+        onRetry={onRetry}
+        onSelect={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('已停止生成')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新生成' }))
+    expect(onRetry).toHaveBeenCalledOnce()
+  })
+
   it('shows a thinking hint while streaming with no content yet', () => {
     const empty: NodeRow = { ...node('streaming'), ai_response: null, user_input: 'Q' }
     const { rerender } = render(
@@ -88,5 +122,25 @@ describe('DocView', () => {
     onAnchorClick.mockClear()
     fireEvent.click(screen.getByText('第二段'))
     expect(onAnchorClick).not.toHaveBeenCalled()
+  })
+
+  it('shows the selection toolbar on selectionchange without taking focus or clearing selection', () => {
+    render(<SelectionHarness />)
+    const body = document.querySelector<HTMLElement>('.doc-body')!
+    const selected = body.querySelector('p')!.firstChild!
+    body.focus()
+    const range = document.createRange()
+    range.setStart(selected, 0)
+    range.setEnd(selected, '第一段'.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    fireEvent(document, new Event('selectionchange'))
+
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(body).toHaveFocus()
+    fireEvent.mouseDown(screen.getByRole('menuitem', { name: '笔记' }))
+    expect(window.getSelection()?.toString()).toBe('第一段')
   })
 })

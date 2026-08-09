@@ -74,6 +74,30 @@ describe('tree and node routes', () => {
     await app.close()
   })
 
+  it('lists and restores a deleted tree and rejects missing or active trees', async () => {
+    const { app } = setup()
+    const created = await app.inject({ method: 'POST', payload: { title: '待恢复' }, url: '/api/trees' })
+    const { tree } = created.json<{ tree: { id: string } }>()
+    await app.inject({ method: 'DELETE', url: `/api/trees/${tree.id}` })
+
+    const deleted = await app.inject({ method: 'GET', url: '/api/trees/deleted' })
+    expect(deleted.statusCode).toBe(200)
+    expect(deleted.json()).toMatchObject({ trees: [{ id: tree.id, is_deleted: 1 }] })
+
+    const restored = await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/restore` })
+    expect(restored.statusCode).toBe(200)
+    expect(restored.json()).toMatchObject({ tree: { id: tree.id, is_deleted: 0 } })
+    expect((await app.inject({ method: 'GET', url: '/api/trees' })).json())
+      .toMatchObject({ trees: [{ id: tree.id }] })
+    expect((await app.inject({ method: 'GET', url: '/api/trees/deleted' })).json())
+      .toEqual({ trees: [] })
+    expect((await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/restore` })).statusCode)
+      .toBe(404)
+    expect((await app.inject({ method: 'POST', url: '/api/trees/missing/restore' })).statusCode)
+      .toBe(404)
+    await app.close()
+  })
+
   it('renames a tree and rejects an empty title', async () => {
     const { app } = setup()
     const created = await app.inject({ method: 'POST', payload: { title: '旧' }, url: '/api/trees' })
