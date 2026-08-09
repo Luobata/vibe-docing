@@ -16,6 +16,7 @@ import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
 import { MergedConclusions } from './MergedConclusions'
+import { QuestionEditor } from './QuestionEditor'
 import { SelectionMenu } from './SelectionMenu'
 
 interface Turn {
@@ -303,6 +304,24 @@ export function MainDoc() {
     patchLastTurn({ status: 'complete' })
   }
 
+  async function editMainQuestion(next: string): Promise<void> {
+    if (busy) return
+    setBusy(true); setError(null); setPhase('thinking'); stopRef.current = false
+    try {
+      const prepared = await api.editNode(node.id, { userInput: next })
+      let text = ''
+      upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: next })
+      await api.streamAnswer(node.id, next, {
+        onChunk(chunk) { if (stopRef.current) return; setPhase('replying'); text += chunk; upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(text), status: 'streaming', user_input: next }) },
+        onDone(doneNode) { if (stopRef.current) return; upsertNode({ ...doneNode, status: doneNode.status ?? 'complete' }); setPhase('idle') },
+        onError(message) { if (stopRef.current) return; upsertNode({ ...prepared.node, status: 'error', user_input: next }); setError(humanize(message)); setPhase('idle') },
+      })
+    } catch (cause) {
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重新生成失败，请重试。')
+      setPhase('idle')
+    } finally { setBusy(false) }
+  }
+
   async function retryCurrent(): Promise<void> {
     const question = node.user_input?.trim()
     if (!question || busy) return
@@ -329,6 +348,9 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
+        {node.user_input && (
+          <QuestionEditor question={node.user_input} disabled={busy} onResubmit={(next) => { void editMainQuestion(next) }} />
+        )}
         <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
           const target = pickAnchorTarget(annotations, annId, (childId) => {
             const n = nodesById[childId]

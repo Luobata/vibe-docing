@@ -307,4 +307,20 @@ describe('MainDoc fork flow', () => {
     // retry re-runs streamAnswer against the SAME answer node with the SAME question
     await waitFor(() => expect(streamAnswer).toHaveBeenNthCalledWith(2, 'answer', '会失败的问题', expect.anything()))
   })
+
+  it('edits the main question and regenerates', async () => {
+    const editNode = vi.fn(async (_id: string, body: { userInput: string }) => ({ node: { ...node('root', null), user_input: body.userInput } }))
+    const streamAnswer = vi.fn(async (_id: string, _q: string, h: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+      h.onChunk('新答案')
+      h.onDone({ ...node('root', null), status: 'complete' })
+    })
+    useWorkbench.getState().loadTree({ nodes: [node('root', null)], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={{ getNode: async () => ({ node: node('root', null), annotations: [], segments: [] }), editNode, streamAnswer } as never}><MainDoc /></ApiProvider>)
+    await waitFor(() => screen.getByLabelText('编辑问题'))
+    fireEvent.click(screen.getByLabelText('编辑问题'))
+    fireEvent.change(screen.getByLabelText('edit-question'), { target: { value: '改后的主问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并重新生成' }))
+    await waitFor(() => expect(editNode).toHaveBeenCalledWith('root', { userInput: '改后的主问题' }))
+    expect(streamAnswer).toHaveBeenCalled()
+  })
 })
