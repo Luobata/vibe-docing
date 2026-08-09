@@ -881,7 +881,35 @@ button { font: inherit; color: inherit; }
 }
 
 /* 对话轮次 */
-.turn { margin-top: 24px; padding-top: 18px; border-top: 1px dashed var(--border-2); }
+/* 对话轮次卡片：每轮独立成卡，左上角「第 N 轮」徽标，便于定位 */
+.turn-card {
+  position: relative;
+  margin-top: 20px;
+  padding: 16px 18px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-sm);
+}
+.turn-card:first-of-type { margin-top: 12px; }
+.turn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-hover);
+  background: var(--primary-tint);
+  border-radius: 999px;
+}
+.turn-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
 
 /* 问题编辑器（主问题 + 轮次问题） */
 .question-view {
@@ -905,11 +933,14 @@ button { font: inherit; color: inherit; }
   font-weight: 600;
   letter-spacing: -.01em;
 }
-/* 轮次问题：恢复用户气泡样式 */
+/* 轮次问题：用户气泡靠右对齐（问答左右分开更好认轮次） */
+.question-view:has(.turn-question) { justify-content: flex-end; flex-direction: row-reverse; }
 .turn-question {
+  flex: 0 1 auto;
+  max-width: 82%;
   padding: 9px 13px;
   background: var(--primary-tint);
-  border-radius: 12px 12px 12px 3px;
+  border-radius: 12px 12px 3px 12px;
 }
 /* 编辑按钮：安静，悬停轮次时才明显 */
 .question-view .quiet-button {
