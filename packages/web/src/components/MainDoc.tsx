@@ -146,6 +146,10 @@ export function MainDoc() {
     })
   }
 
+  function patchTurn(id: string, patch: Partial<NodeRow>): void {
+    setTranscript((turns) => turns.map((t) => t.id === id ? { ...t, answer: { ...t.answer, ...patch } } : t))
+  }
+
   async function forkExpand(question: string): Promise<void> {
     if (!selection || !treeId) return
     setError(null)
@@ -191,16 +195,16 @@ export function MainDoc() {
         if (stopRef.current) return
         setPhase('replying')
         text += chunk
-        patchLastTurn({ ai_response: plainTextToProseMirror(text), status: 'streaming' })
+        patchTurn(answerId, { ai_response: plainTextToProseMirror(text), status: 'streaming' })
       },
       onDone(doneNode) {
         if (stopRef.current) return
-        patchLastTurn({ ...doneNode, status: doneNode.status ?? 'complete' })
+        patchTurn(answerId, { ...doneNode, status: doneNode.status ?? 'complete' })
         setPhase('idle')
       },
       onError(message) {
         if (stopRef.current) return
-        patchLastTurn({ status: 'error' })
+        patchTurn(answerId, { status: 'error' })
         setError(humanize(message))
         setPhase('idle')
       },
@@ -322,6 +326,21 @@ export function MainDoc() {
     } finally { setBusy(false) }
   }
 
+  async function editTurnQuestion(turn: Turn, next: string): Promise<void> {
+    if (busy) return
+    setBusy(true); setError(null); setPhase('thinking'); stopRef.current = false
+    try {
+      await api.editNode(turn.id, { userInput: next })
+      setTranscript((turns) => turns.map((t) => t.id === turn.id
+        ? { ...t, question: next, answer: { ...t.answer, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: next } } : t))
+      setLastQuestion(next)
+      await runTurn(turn.id, next)
+    } catch (cause) {
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重新生成失败，请重试。')
+      setPhase('idle')
+    } finally { setBusy(false) }
+  }
+
   async function retryCurrent(): Promise<void> {
     const question = node.user_input?.trim()
     if (!question || busy) return
@@ -364,7 +383,12 @@ export function MainDoc() {
         <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
-            <p className="turn-question" data-testid="turn-question">{turn.question}</p>
+            <QuestionEditor
+              disabled={busy}
+              onResubmit={(next) => { void editTurnQuestion(turn, next) }}
+              question={turn.question}
+              testId="turn-question"
+            />
             <DocView
               annotations={[]}
               errorText={index === transcript.length - 1 && error ? error : undefined}

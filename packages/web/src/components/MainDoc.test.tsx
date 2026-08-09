@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -199,6 +199,46 @@ describe('MainDoc fork flow', () => {
     expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
     expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
     expect(screen.queryByRole('button', { name: '查看迁移位置' })).toBeNull()
+  })
+
+  it('edits a transcript turn question by its id and regenerates that turn', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '持久化怎么配？' }
+    const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
+      onChunk(text: string): void
+      onDone(result: NodeRow): void
+    }) => {
+      handlers.onChunk('回答')
+      handlers.onDone({ ...answer, ai_response: JSON.stringify({ content: [{ content: [{ text: '回答', type: 'text' }], type: 'paragraph' }], type: 'doc' }), status: 'complete' })
+    })
+    const editNode = vi.fn(async (_id: string, body: { userInput: string }) => ({ node: { ...answer, status: 'draft' as const, user_input: body.userInput } }))
+    const api = {
+      editNode,
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    // drive one transcript turn into existence
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '持久化怎么配？' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByTestId('turn-question')).toHaveTextContent('持久化怎么配？')
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+    streamAnswer.mockClear()
+    editNode.mockClear()
+
+    // edit the turn's question in place and save → regenerate that turn
+    const turn = screen.getByRole('region', { name: '对话轮次' })
+    fireEvent.click(within(turn).getByLabelText('编辑问题'))
+    fireEvent.change(within(turn).getByLabelText('edit-question'), { target: { value: '改后的轮次问题' } })
+    fireEvent.click(within(turn).getByRole('button', { name: '保存并重新生成' }))
+
+    // editNode targets the TURN id (not the last-only), then the turn regenerates
+    await waitFor(() => expect(editNode).toHaveBeenCalledWith('answer', { userInput: '改后的轮次问题' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer', '改后的轮次问题', expect.anything()))
+    await waitFor(() => expect(screen.getByTestId('turn-question')).toHaveTextContent('改后的轮次问题'))
   })
 
   it('chains follow-up turns by forking from the previous answer node', async () => {

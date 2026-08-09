@@ -2,8 +2,8 @@ import { useState, type KeyboardEvent } from 'react'
 import { usePastedImages } from '../flow/use-pasted-images'
 import { ImageThumbs } from './ImageThumbs'
 
-export function QuestionEditor({ question, disabled, onResubmit }: {
-  question: string; disabled?: boolean; onResubmit(next: string): void
+export function QuestionEditor({ question, disabled, onResubmit, testId }: {
+  question: string; disabled?: boolean; onResubmit(next: string): void; testId?: string
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(question)
@@ -25,7 +25,7 @@ export function QuestionEditor({ question, disabled, onResubmit }: {
   if (!editing) {
     return (
       <div className="question-view">
-        <span className="question-text">{question}</span>
+        <span className="question-text" data-testid={testId}>{question}</span>
         <button aria-label="编辑问题" className="quiet-button" disabled={disabled}
           onClick={() => { if (!disabled) { setValue(question); setEditing(true) } }} type="button">编辑</button>
       </div>
