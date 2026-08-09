@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { usePastedImages } from '../flow/use-pasted-images'
 import { ImageThumbs } from './ImageThumbs'
 
@@ -7,7 +7,18 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(question)
+  const [expanded, setExpanded] = useState(false)
+  const [canExpand, setCanExpand] = useState(false)
+  const textRef = useRef<HTMLSpanElement>(null)
   const imgs = usePastedImages()
+
+  // Measure overflow only while collapsed; keep canExpand sticky when expanded
+  // (removing the clamp would otherwise make the "收起" toggle vanish mid-read).
+  useLayoutEffect(() => {
+    if (expanded) return
+    const el = textRef.current
+    if (el) setCanExpand(el.scrollHeight > el.clientHeight + 1)
+  }, [question, expanded])
 
   function submit(): void {
     if (disabled) return
@@ -26,10 +37,18 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
   }
 
   if (!editing) {
-    const textClass = testId === 'turn-question' ? 'question-text turn-question' : 'question-text'
+    const base = testId === 'turn-question' ? 'question-text turn-question' : 'question-text'
+    const textClass = expanded ? base : `${base} question-text--clamped`
     return (
       <div className="question-view">
-        <span className={textClass} data-testid={testId}>{question}</span>
+        <div className="question-main">
+          <span className={textClass} data-testid={testId} ref={textRef}>{question}</span>
+          {canExpand && (
+            <button className="question-toggle" onClick={() => setExpanded((v) => !v)} type="button">
+              {expanded ? '收起' : '展开'}
+            </button>
+          )}
+        </div>
         <button aria-label="编辑问题" className="quiet-button" disabled={disabled}
           onClick={() => { if (!disabled) { setValue(question); setEditing(true) } }} type="button">编辑</button>
       </div>
