@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -201,6 +201,92 @@ describe('MainDoc fork flow', () => {
     expect(screen.queryByRole('button', { name: '查看迁移位置' })).toBeNull()
   })
 
+  it('edits a transcript turn question by its id and regenerates that turn', async () => {
+    const root = node('root', null)
+    const answer = { ...node('answer', 'root'), user_input: '持久化怎么配？' }
+    const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
+      onChunk(text: string): void
+      onDone(result: NodeRow): void
+    }) => {
+      handlers.onChunk('回答')
+      handlers.onDone({ ...answer, ai_response: JSON.stringify({ content: [{ content: [{ text: '回答', type: 'text' }], type: 'paragraph' }], type: 'doc' }), status: 'complete' })
+    })
+    const editNode = vi.fn(async (_id: string, body: { userInput: string }) => ({ node: { ...answer, status: 'draft' as const, user_input: body.userInput } }))
+    const api = {
+      editNode,
+      fork: vi.fn(async () => ({ annotation: { id: 'whole-ann' }, childNode: answer })),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    // drive one transcript turn into existence
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '持久化怎么配？' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByTestId('turn-question')).toHaveTextContent('持久化怎么配？')
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+    streamAnswer.mockClear()
+    editNode.mockClear()
+
+    // edit the turn's question in place and save → regenerate that turn
+    const turn = screen.getByRole('region', { name: '对话轮次' })
+    fireEvent.click(within(turn).getByLabelText('编辑问题'))
+    fireEvent.change(within(turn).getByLabelText('edit-question'), { target: { value: '改后的轮次问题' } })
+    fireEvent.click(within(turn).getByRole('button', { name: '保存并重新生成' }))
+
+    // editNode targets the TURN id (not the last-only), then the turn regenerates
+    await waitFor(() => expect(editNode).toHaveBeenCalledWith('answer', { userInput: '改后的轮次问题' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer', '改后的轮次问题', expect.anything()))
+    await waitFor(() => expect(screen.getByTestId('turn-question')).toHaveTextContent('改后的轮次问题'))
+  })
+
+  it('editing a NON-last turn keeps lastQuestion coupled to the last turn (retry uses the last question)', async () => {
+    const root = node('root', null)
+    const a1 = { ...node('answer1', 'root'), user_input: '第一问' }
+    const a2 = { ...node('answer2', 'answer1'), user_input: '第二问' }
+    let forkCount = 0
+    let secondTurnErrored = false
+    const streamAnswer = vi.fn(async (id: string, q: string, handlers: { onChunk(t: string): void; onDone(n: NodeRow): void; onError(m: string): void }) => {
+      // The last turn's first stream errors so its DocView exposes a retry button.
+      if (id === 'answer2' && q === '第二问' && !secondTurnErrored) { secondTurnErrored = true; handlers.onError('HTTP 500'); return }
+      handlers.onChunk('x')
+      handlers.onDone({ ...(id === 'answer1' ? a1 : a2), status: 'complete', user_input: q })
+    })
+    const api = {
+      editNode: vi.fn(async (id: string, body: { userInput: string }) => ({ node: { ...(id === 'answer1' ? a1 : a2), status: 'draft' as const, user_input: body.userInput } })),
+      fork: vi.fn(async () => { forkCount += 1; return { annotation: { id: `ann${forkCount}` }, childNode: forkCount === 1 ? a1 : a2 } }),
+      getNode: vi.fn(() => new Promise(() => {})),
+      streamAnswer,
+    }
+    useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    // build two turns
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ seedText: '第一问' })))
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+    fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第二问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ seedText: '第二问' })))
+    // last turn errored → its retry button is present
+    await waitFor(() => expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument())
+
+    // edit the FIRST (non-last) turn's question
+    const firstTurn = screen.getAllByRole('region', { name: '对话轮次' })[0]
+    fireEvent.click(within(firstTurn).getByLabelText('编辑问题'))
+    fireEvent.change(within(firstTurn).getByLabelText('edit-question'), { target: { value: '改后的第一问' } })
+    fireEvent.click(within(firstTurn).getByRole('button', { name: '保存并重新生成' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer1', '改后的第一问', expect.anything()))
+    await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
+
+    // retry the last turn: it must regenerate answer2 with the LAST question (第二问),
+    // NOT the non-last turn's edited question — lastQuestion stayed coupled to the last turn.
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+    await waitFor(() => expect(streamAnswer).toHaveBeenLastCalledWith('answer2', '第二问', expect.anything()))
+  })
+
   it('chains follow-up turns by forking from the previous answer node', async () => {
     const root = node('root', null)
     const a1 = { ...node('answer1', 'root'), user_input: '第一问' }
@@ -306,5 +392,21 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
     // retry re-runs streamAnswer against the SAME answer node with the SAME question
     await waitFor(() => expect(streamAnswer).toHaveBeenNthCalledWith(2, 'answer', '会失败的问题', expect.anything()))
+  })
+
+  it('edits the main question and regenerates', async () => {
+    const editNode = vi.fn(async (_id: string, body: { userInput: string }) => ({ node: { ...node('root', null), user_input: body.userInput } }))
+    const streamAnswer = vi.fn(async (_id: string, _q: string, h: { onChunk(t: string): void; onDone(n: NodeRow): void }) => {
+      h.onChunk('新答案')
+      h.onDone({ ...node('root', null), status: 'complete' })
+    })
+    useWorkbench.getState().loadTree({ nodes: [node('root', null)], rootNodeId: 'root', treeId: 't' })
+    render(<ApiProvider api={{ getNode: async () => ({ node: node('root', null), annotations: [], segments: [] }), editNode, streamAnswer } as never}><MainDoc /></ApiProvider>)
+    await waitFor(() => screen.getByLabelText('编辑问题'))
+    fireEvent.click(screen.getByLabelText('编辑问题'))
+    fireEvent.change(screen.getByLabelText('edit-question'), { target: { value: '改后的主问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并重新生成' }))
+    await waitFor(() => expect(editNode).toHaveBeenCalledWith('root', { userInput: '改后的主问题' }))
+    expect(streamAnswer).toHaveBeenCalled()
   })
 })

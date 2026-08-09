@@ -16,6 +16,7 @@ import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
 import { MergedConclusions } from './MergedConclusions'
+import { QuestionEditor } from './QuestionEditor'
 import { SelectionMenu } from './SelectionMenu'
 
 interface Turn {
@@ -145,6 +146,10 @@ export function MainDoc() {
     })
   }
 
+  function patchTurn(id: string, patch: Partial<NodeRow>): void {
+    setTranscript((turns) => turns.map((t) => t.id === id ? { ...t, answer: { ...t.answer, ...patch } } : t))
+  }
+
   async function forkExpand(question: string): Promise<void> {
     if (!selection || !treeId) return
     setError(null)
@@ -190,16 +195,16 @@ export function MainDoc() {
         if (stopRef.current) return
         setPhase('replying')
         text += chunk
-        patchLastTurn({ ai_response: plainTextToProseMirror(text), status: 'streaming' })
+        patchTurn(answerId, { ai_response: plainTextToProseMirror(text), status: 'streaming' })
       },
       onDone(doneNode) {
         if (stopRef.current) return
-        patchLastTurn({ ...doneNode, status: doneNode.status ?? 'complete' })
+        patchTurn(answerId, { ...doneNode, status: doneNode.status ?? 'complete' })
         setPhase('idle')
       },
       onError(message) {
         if (stopRef.current) return
-        patchLastTurn({ status: 'error' })
+        patchTurn(answerId, { status: 'error' })
         setError(humanize(message))
         setPhase('idle')
       },
@@ -303,6 +308,42 @@ export function MainDoc() {
     patchLastTurn({ status: 'complete' })
   }
 
+  async function editMainQuestion(next: string): Promise<void> {
+    if (busy) return
+    setBusy(true); setError(null); setPhase('thinking'); stopRef.current = false
+    try {
+      const prepared = await api.editNode(node.id, { userInput: next })
+      let text = ''
+      upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: next })
+      await api.streamAnswer(node.id, next, {
+        onChunk(chunk) { if (stopRef.current) return; setPhase('replying'); text += chunk; upsertNode({ ...prepared.node, ai_response: plainTextToProseMirror(text), status: 'streaming', user_input: next }) },
+        onDone(doneNode) { if (stopRef.current) return; upsertNode({ ...doneNode, status: doneNode.status ?? 'complete' }); setPhase('idle') },
+        onError(message) { if (stopRef.current) return; upsertNode({ ...prepared.node, status: 'error', user_input: next }); setError(humanize(message)); setPhase('idle') },
+      })
+    } catch (cause) {
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重新生成失败，请重试。')
+      setPhase('idle')
+    } finally { setBusy(false) }
+  }
+
+  async function editTurnQuestion(turn: Turn, next: string): Promise<void> {
+    if (busy) return
+    setBusy(true); setError(null); setPhase('thinking'); stopRef.current = false
+    try {
+      await api.editNode(turn.id, { userInput: next })
+      setTranscript((turns) => turns.map((t) => t.id === turn.id
+        ? { ...t, question: next, answer: { ...t.answer, ai_response: plainTextToProseMirror(''), status: 'streaming', user_input: next } } : t))
+      // NOTE: do NOT setLastQuestion(next) here. runTurn(turn.id, next) uses `next`
+      // directly for the edit; lastQuestion must stay coupled to the actual last turn
+      // (set by ask), or retryLastTurn would regenerate the last turn with a non-last
+      // edited question. See final-review FIX 1.
+      await runTurn(turn.id, next)
+    } catch (cause) {
+      if (!stopRef.current) setError(cause instanceof Error ? humanize(cause.message) : '重新生成失败，请重试。')
+      setPhase('idle')
+    } finally { setBusy(false) }
+  }
+
   async function retryCurrent(): Promise<void> {
     const question = node.user_input?.trim()
     if (!question || busy) return
@@ -329,6 +370,9 @@ export function MainDoc() {
   return (
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
+        {node.user_input && (
+          <QuestionEditor question={node.user_input} disabled={busy} onResubmit={(next) => { void editMainQuestion(next) }} />
+        )}
         <DocView annotations={annotations} node={node} onAnchorClick={(annId) => {
           const target = pickAnchorTarget(annotations, annId, (childId) => {
             const n = nodesById[childId]
@@ -342,7 +386,12 @@ export function MainDoc() {
         <MergedConclusions segments={segments} />
         {transcript.map((turn, index) => (
           <section aria-label="对话轮次" className="turn" key={turn.id}>
-            <p className="turn-question" data-testid="turn-question">{turn.question}</p>
+            <QuestionEditor
+              disabled={busy}
+              onResubmit={(next) => { void editTurnQuestion(turn, next) }}
+              question={turn.question}
+              testId="turn-question"
+            />
             <DocView
               annotations={[]}
               errorText={index === transcript.length - 1 && error ? error : undefined}
