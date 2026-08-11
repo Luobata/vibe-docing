@@ -52,7 +52,7 @@ export function createDeps(options: { clock?: Clock; db: Db }): AppDeps {
     nodes,
     segments,
     settings,
-    share: createShareService(options.db, shares),
+    share: createShareService(options.db, shares, visualArtifacts),
     shares,
     trees: createTreeRepo(options.db, clock),
     versions,

@@ -1,10 +1,13 @@
-import type { DocumentShareView, NodeRow, TreeRow } from '@vibe/shared'
+import { prosemirrorToRenderRuns, type DocumentShareView, type NodeRow, type TreeRow, type VisualArtifact } from '@vibe/shared'
 import type { Db } from '../db/connection'
 import type { ShareRepo, ShareRow } from '../repo/share-repo'
 import { tokenForShare } from '../repo/share-repo'
-import type { ShareDocument, ShareNode } from './share-renderer'
+import type { createVisualArtifactRepo } from '../repo/visual-artifact-repo'
+import { visualReferenceKey, type ShareDocument, type ShareNode } from './share-renderer'
 
-export function createShareService(db: Db, shares: ShareRepo) {
+type VisualArtifactRepo = ReturnType<typeof createVisualArtifactRepo>
+
+export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: VisualArtifactRepo) {
   const view = (row: ShareRow, token = tokenForShare(row.id)): DocumentShareView => ({
     enabled: true,
     url: `/share/${token}`,
@@ -39,11 +42,27 @@ export function createShareService(db: Db, shares: ShareRepo) {
     }
     const root = rows.find((row) => row.id === tree.root_node_id)
     if (!root) return undefined
+    const visuals = new Map<string, VisualArtifact>()
+    for (const row of rows) {
+      for (const source of [row.user_input, row.ai_response]) {
+        for (const run of prosemirrorToRenderRuns(source)) {
+          if (run.type !== 'visual') continue
+          const key = visualReferenceKey(run.reference)
+          if (visuals.has(key)) continue
+          try {
+            const artifact = visualArtifacts.get(run.reference.artifactId, run.reference.revision)
+            if (artifact) visuals.set(key, artifact)
+          } catch {
+            // A damaged or incompatible artifact must not make the whole public document unavailable.
+          }
+        }
+      }
+    }
     const assemble = (row: NodeRow): ShareNode => ({
       row,
       children: (byParent.get(row.id) ?? []).map(assemble),
     })
-    return { tree, root: assemble(root) }
+    return { tree, root: assemble(root), visuals }
   }
 
   return { create, documentForToken, get, revoke: shares.revoke }

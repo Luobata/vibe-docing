@@ -47,4 +47,51 @@ describe('document sharing', () => {
     expect((await app.inject({ method: 'DELETE', url: `/api/trees/${tree.id}/share` })).json()).toEqual({ code: 'SHARE_NOT_FOUND' })
     await app.close()
   })
+
+  it('serves referenced canvas revisions as semantic Markdown and static HTML', async () => {
+    const app = buildApp()
+    const { tree, rootNode } = (await app.inject({ method: 'POST', url: '/api/trees', payload: { title: 'Canvas share' } })).json()
+    const artifactId = 'private-canvas-id'
+    const scene = {
+      schemaVersion: 1 as const,
+      kind: 'architecture' as const,
+      title: 'Canvas 架构',
+      altText: '客户端连接服务端',
+      renderer: 'canvas' as const,
+      nodes: [{ id: 'client', label: '客户端' }, { id: 'server', label: '服务端', description: '公开分享渲染' }],
+      edges: [{ id: 'request', source: 'client', target: 'server', label: '请求' }],
+      groups: [],
+    }
+    app.deps.visualArtifacts.create({ ...scene, artifactId, revision: 1 })
+    const response = (revision: number, altText: string) => JSON.stringify({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: '架构说明' }] },
+        { type: 'visual_ref', attrs: { artifactId, revision, altText } },
+      ],
+    })
+    app.deps.nodes.updateContent(rootNode.id, { aiResponse: response(1, scene.altText) })
+    const share = (await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/share` })).json().share
+
+    const markdown = await app.inject({ method: 'GET', url: share.markdownUrl })
+    expect(markdown.statusCode).toBe(200)
+    expect(markdown.body).toContain('```visual-scene')
+    expect(markdown.body).toContain('"title": "Canvas 架构"')
+    expect(markdown.body).toContain('"description": "公开分享渲染"')
+    expect(markdown.body).not.toContain(artifactId)
+
+    const html = await app.inject({ method: 'GET', url: share.url })
+    expect(html.statusCode).toBe(200)
+    expect(html.body).toContain('<figure class="share-visual"')
+    expect(html.body).toContain('<svg role="img"')
+    expect(html.body).toContain('data-node-count="2"')
+    expect(html.body).not.toContain(artifactId)
+
+    app.deps.visualArtifacts.create({ ...scene, title: 'Canvas 架构 v2', artifactId, revision: 2 })
+    app.deps.nodes.updateContent(rootNode.id, { aiResponse: response(2, scene.altText) })
+    const latest = await app.inject({ method: 'GET', url: share.markdownUrl })
+    expect(latest.body).toContain('"title": "Canvas 架构 v2"')
+    expect(latest.body).not.toContain('"title": "Canvas 架构"')
+    await app.close()
+  })
 })
