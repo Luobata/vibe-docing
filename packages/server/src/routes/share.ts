@@ -7,17 +7,44 @@ const publicHeaders = {
 }
 
 export function registerShareRoutes(app: DecoratedApp): void {
+  const shareableNode = (nodeId: string) => {
+    const node = app.deps.nodes.get(nodeId)
+    if (!node || node.is_deleted || !app.deps.trees.get(node.tree_id)) return undefined
+    return node
+  }
+
+  app.get('/api/nodes/:nodeId/share', async (request, reply) => {
+    const node = shareableNode(request.params.nodeId)
+    if (!node) return reply.code(404).send({ code: 'NODE_NOT_FOUND' })
+    return { share: app.deps.share.get(node.id) }
+  })
+  app.post('/api/nodes/:nodeId/share', async (request, reply) => {
+    const node = shareableNode(request.params.nodeId)
+    if (!node) return reply.code(404).send({ code: 'NODE_NOT_FOUND' })
+    return { share: app.deps.share.create(node.tree_id, node.id) }
+  })
+  app.delete('/api/nodes/:nodeId/share', async (request, reply) => {
+    const node = shareableNode(request.params.nodeId)
+    if (!node) return reply.code(404).send({ code: 'NODE_NOT_FOUND' })
+    if (!app.deps.share.revoke(node.id)) return reply.code(404).send({ code: 'SHARE_NOT_FOUND' })
+    return { ok: true }
+  })
+
+  // Compatibility: legacy tree-scoped calls continue to target the root node.
   app.get('/api/trees/:treeId/share', async (request, reply) => {
-    if (!app.deps.trees.get(request.params.treeId)) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
-    return { share: app.deps.share.get(request.params.treeId) }
+    const tree = app.deps.trees.get(request.params.treeId)
+    if (!tree?.root_node_id) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
+    return { share: app.deps.share.get(tree.root_node_id) }
   })
   app.post('/api/trees/:treeId/share', async (request, reply) => {
-    if (!app.deps.trees.get(request.params.treeId)) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
-    return { share: app.deps.share.create(request.params.treeId) }
+    const tree = app.deps.trees.get(request.params.treeId)
+    if (!tree?.root_node_id) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
+    return { share: app.deps.share.create(tree.id, tree.root_node_id) }
   })
   app.delete('/api/trees/:treeId/share', async (request, reply) => {
-    if (!app.deps.trees.get(request.params.treeId)) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
-    if (!app.deps.share.revoke(request.params.treeId)) return reply.code(404).send({ code: 'SHARE_NOT_FOUND' })
+    const tree = app.deps.trees.get(request.params.treeId)
+    if (!tree?.root_node_id) return reply.code(404).send({ code: 'TREE_NOT_FOUND' })
+    if (!app.deps.share.revoke(tree.root_node_id)) return reply.code(404).send({ code: 'SHARE_NOT_FOUND' })
     return { ok: true }
   })
 

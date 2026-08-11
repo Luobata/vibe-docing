@@ -31,6 +31,7 @@ import { MergedConclusions } from './MergedConclusions'
 import { QuestionEditor } from './QuestionEditor'
 import { RouteErrorNotice, RoutePrompt } from './RoutePrompt'
 import { SelectionMenu } from './SelectionMenu'
+import { isSelectionSource } from './subdoc-classification'
 
 interface Turn {
   answer: NodeRow
@@ -314,6 +315,9 @@ export function MainDoc() {
       if (isOwnerVisible(task)) {
         setAnnotations((current) => [...current, result.annotation])
         const workbench = useWorkbench.getState()
+        if (!workbench.notesForMain.some((item) => item.id === result.annotation.id)) {
+          workbench.setNotesForMain([...workbench.notesForMain, result.annotation])
+        }
         workbench.openSubdocTab(childNode.id)
         workbench.setSubdocPanelTab('derivations')
         setSelection(null)
@@ -637,8 +641,22 @@ export function MainDoc() {
       }
       cancelledNode = streamingNode
       cancelledTurnId = answerId
-      useWorkbench.getState().upsertNode(streamingNode, { refreshSubdocTabs: false })
+      const isDirectGlobalDerivation = parentId === node.id
+      useWorkbench.getState().upsertNode(streamingNode, {
+        refreshSubdocTabs: isDirectGlobalDerivation,
+      })
       if (isOwnerVisible(task)) {
+        if (isDirectGlobalDerivation) {
+          setAnnotations((current) => current.some((item) => item.id === forked.annotation.id)
+            ? current
+            : [...current, forked.annotation])
+          const workbench = useWorkbench.getState()
+          if (!workbench.notesForMain.some((item) => item.id === forked.annotation.id)) {
+            workbench.setNotesForMain([...workbench.notesForMain, forked.annotation])
+          }
+          workbench.openSubdocTab(answerId)
+          workbench.setSubdocPanelTab('global')
+        }
         setLastTurnNodeId(answerId)
         setTranscript((turns) => [...turns, {
           answer: streamingNode,
@@ -869,11 +887,15 @@ export function MainDoc() {
               onClick={() => {
                 transitionDocument(() => {
                   const store = useWorkbench.getState()
+                  const source = parentContext.annotation
+                  const anchoredToSelection = isSelectionSource(source ?? undefined)
                   store.setMain(parentContext.node.id)
-                  store.setSubdocPanelTab('derivations')
+                  store.setSubdocPanelTab(anchoredToSelection ? 'derivations' : 'global')
                   store.setActiveSubdoc(node.id)
-                  store.setAnchoredSubdocId(node.id)
-                  if (parentContext.annotation) store.setFocusedAnnotation(parentContext.annotation.id)
+                  if (anchoredToSelection && source) {
+                    store.setAnchoredSubdocId(node.id)
+                    store.setFocusedAnnotation(source.id)
+                  }
                 })
               }}
               type="button"

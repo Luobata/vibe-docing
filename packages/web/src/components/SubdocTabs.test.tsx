@@ -37,7 +37,7 @@ describe('SubdocTabs', () => {
     expect(useWorkbench.getState().mainNodeId).toBe('a')
   })
 
-  it('locates the source annotation when a derivation is selected', () => {
+  it('switches a selection-derived tab and immediately locates its source', async () => {
     useWorkbench.getState().loadTree({
       nodes: [node('root', null, ''), node('a', 'root', 'MemoryScope')],
       rootNodeId: 'root', treeId: 't',
@@ -50,7 +50,55 @@ describe('SubdocTabs', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /MemoryScope/ }))
     expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-a')
-    expect(screen.getByRole('button', { name: '定位原文' })).toBeInTheDocument()
+    expect(screen.getByText('来源：选中文本派生')).toHaveAttribute('data-source-kind', 'selection')
+    expect(screen.queryByRole('button', { name: '查看主文档' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('tab', { name: /MemoryScope/ })).toHaveClass('is-anchor-flash'))
+
+    useWorkbench.getState().setFocusedAnnotation(null)
+    fireEvent.click(screen.getByRole('button', { name: '定位原文' }))
+    expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-a')
+  })
+
+  it('shows a whole-document source and navigates to its parent document', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, ''), node('a', 'root', '整份文档的问题')],
+      rootNodeId: 'root', treeId: 't',
+    })
+    const source = {
+      anchor_from: null, anchor_to: null, child_node_id: 'a', created_at: '', id: 'ann-whole',
+      kind: 'whole', node_id: 'root', note: null, quoted_text: null,
+    } satisfies AnnotationRow
+    render(<ApiProvider api={{} as never}><SubdocTabs annotations={[source]} /></ApiProvider>)
+
+    expect(screen.getByText('来源：整份文档追问 · 无具体原文锚点')).toHaveAttribute('data-source-kind', 'whole')
+    expect(screen.queryByRole('button', { name: '定位原文' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: /整份文档的问题/ }))
+    expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '查看主文档' }))
+    expect(useWorkbench.getState().mainNodeId).toBe('root')
+  })
+
+  it('renders only the node ids assigned to the active category', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, ''), node('selection', 'root', '上下文问题'), node('global', 'root', '全局问题')],
+      rootNodeId: 'root', treeId: 't',
+    })
+    render(<ApiProvider api={{} as never}><SubdocTabs nodeIds={['global']} /></ApiProvider>)
+
+    expect(screen.getByRole('tab', { name: '全局问题' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '上下文问题' })).not.toBeInTheDocument()
+  })
+
+  it('hides source metadata and actions when the source annotation is unavailable', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, ''), node('a', 'root', '缺少来源')],
+      rootNodeId: 'root', treeId: 't',
+    })
+    render(<ApiProvider api={{} as never}><SubdocTabs /></ApiProvider>)
+
+    expect(document.querySelector('[data-source-kind]')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '定位原文' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '查看主文档' })).not.toBeInTheDocument()
   })
 
   it('scrolls and flashes the source branch after returning from a derived document', async () => {

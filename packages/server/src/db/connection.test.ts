@@ -60,4 +60,16 @@ describe('db schema', () => {
 
     expect(columns.map((column) => column.name)).toContain('is_deleted')
   })
+
+  it('scopes active document shares by node', () => {
+    const db = openMemoryDb()
+    openDatabases.push(db)
+
+    const columns = db.prepare('PRAGMA table_info(document_shares)').all() as { name: string }[]
+    const indexes = db.prepare('PRAGMA index_list(document_shares)').all() as { name: string }[]
+
+    expect(columns.map((column) => column.name)).toContain('node_id')
+    expect(indexes.map((index) => index.name)).toContain('idx_document_shares_active_node')
+    expect(indexes.map((index) => index.name)).not.toContain('idx_document_shares_active_tree')
+  })
 })

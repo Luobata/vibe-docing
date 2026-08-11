@@ -6,7 +6,7 @@ import { useWorkbench } from '../state/workbench-store'
 
 type Phase = 'loading' | 'unshared' | 'creating' | 'shared' | 'copy-error' | 'create-error' | 'closing' | 'close-error' | 'closed'
 
-export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; portal: HTMLElement | null; treeId: string | null }) {
+export function SharePanel({ disabled, nodeId, portal }: { disabled: boolean; nodeId: string | null; portal: HTMLElement | null }) {
   const api = useApi()
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>('loading')
@@ -17,6 +17,8 @@ export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; po
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const nodeIdRef = useRef(nodeId)
+  nodeIdRef.current = nodeId
 
   const closeConfirm = () => {
     const dialog = dialogRef.current
@@ -36,11 +38,16 @@ export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; po
   }
 
   useEffect(() => {
-    if (!open || !treeId) return
+    if (!open || !nodeId) return
+    let active = true
     setPhase('loading')
-    api.getShare(treeId).then(({ share: next }) => { setShare(next); setPhase(next ? 'shared' : 'unshared') })
-      .catch(() => setPhase('create-error'))
-  }, [api, open, treeId])
+    setShare(null)
+    api.getShare(nodeId).then(({ share: next }) => {
+      if (!active || nodeIdRef.current !== nodeId) return
+      setShare(next); setPhase(next ? 'shared' : 'unshared')
+    }).catch(() => { if (active && nodeIdRef.current === nodeId) setPhase('create-error') })
+    return () => { active = false }
+  }, [api, nodeId, open])
 
   useLayoutEffect(() => { if (open) place() }, [open, phase])
   useEffect(() => {
@@ -57,10 +64,14 @@ export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; po
   }, [open])
 
   async function create(): Promise<void> {
-    if (!treeId) return
+    if (!nodeId) return
+    const targetNodeId = nodeId
     setPhase('creating')
-    try { const result = await api.createShare(treeId); setShare(result.share); setPhase('shared') }
-    catch { setPhase('create-error') }
+    try {
+      const result = await api.createShare(targetNodeId)
+      if (nodeIdRef.current !== targetNodeId) return
+      setShare(result.share); setPhase('shared')
+    } catch { if (nodeIdRef.current === targetNodeId) setPhase('create-error') }
   }
   async function copy(): Promise<void> {
     if (!share) return
@@ -74,12 +85,15 @@ export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; po
     }
   }
   async function revoke(): Promise<void> {
-    if (!treeId) return
+    if (!nodeId) return
+    const targetNodeId = nodeId
     closeConfirm(); setPhase('closing')
     try {
-      await api.revokeShare(treeId); setShare(null); setPhase('closed')
+      await api.revokeShare(targetNodeId)
+      if (nodeIdRef.current !== targetNodeId) return
+      setShare(null); setPhase('closed')
       useWorkbench.getState().setToast({ message: '分享已关闭，旧链接已失效', variant: 'success', live: 'polite' })
-    } catch { setPhase('close-error') }
+    } catch { if (nodeIdRef.current === targetNodeId) setPhase('close-error') }
   }
   function confirmClose(): void {
     const dialog = dialogRef.current
@@ -90,11 +104,11 @@ export function SharePanel({ disabled, portal, treeId }: { disabled: boolean; po
   }
 
   return <>
-    <button aria-expanded={open} className="quiet-button" disabled={disabled} onClick={() => setOpen((value) => !value)} ref={triggerRef} title={disabled ? '请先打开主文档后再分享' : '分享主文档'} type="button">分享</button>
+    <button aria-expanded={open} className="quiet-button" disabled={disabled} onClick={() => setOpen((value) => !value)} ref={triggerRef} title={disabled ? '请先打开主文档后再分享' : '分享当前文档'} type="button">分享</button>
     {open && portal && createPortal(<div aria-label="文档分享" className="share-panel" ref={panelRef} role="region" style={position}>
       <div className="share-panel-heading"><strong>文档分享</strong><button aria-label="关闭分享面板" onClick={closePanel} type="button">×</button></div>
       {phase === 'loading' && <p role="status">正在读取分享状态…</p>}
-      {(phase === 'unshared' || phase === 'create-error') && <><p>创建免登录只读链接，内容会随源文档更新。</p>{phase === 'create-error' && <p className="share-error" role="alert">读取或创建失败，请重试。</p>}<button className="primary-button" onClick={create} type="button">{phase === 'create-error' ? '重试' : '创建分享链接'}</button></>}
+      {(phase === 'unshared' || phase === 'create-error') && <><p>分享当前文档及其派生内容，内容会随源文档更新。</p>{phase === 'create-error' && <p className="share-error" role="alert">读取或创建失败，请重试。</p>}<button className="primary-button" onClick={create} type="button">{phase === 'create-error' ? '重试' : '创建分享链接'}</button></>}
       {phase === 'creating' && <button className="primary-button" disabled type="button">正在创建…</button>}
       {share && ['shared','copy-error','closing','close-error'].includes(phase) && <><label htmlFor="share-url">分享链接</label><input id="share-url" onFocus={(event) => event.currentTarget.select()} readOnly ref={inputRef} value={`${window.location.origin}${share.url}`} />{phase === 'copy-error' && <p className="share-error" role="alert">无法访问剪贴板，链接已全选，请手动复制。</p>}{phase === 'close-error' && <p className="share-error" role="alert">关闭失败，原链接仍然有效。请重试。</p>}<div className="share-actions"><button disabled={phase === 'closing'} onClick={copy} type="button">复制链接</button><button disabled={phase === 'closing'} onClick={confirmClose} type="button">{phase === 'close-error' ? '重试关闭' : '关闭分享'}</button></div></>}
       {phase === 'closed' && <><p role="status">分享已关闭，旧链接已失效。</p><button onClick={create} type="button">重新开启</button></>}

@@ -603,10 +603,10 @@ button { font: inherit; color: inherit; }
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
 /* ============================================================
-   右栏 · 双 Tab / 分支药丸 / 分支卡
+   右栏 · 分类 Tab / 分支药丸 / 分支卡
    ============================================================ */
-/* 下划线式 Tab（派生分支 / 笔记） */
-.panel-tab-bar { display: flex; gap: 22px; margin: 18px 0 4px; border-bottom: 1px solid var(--border-2); }
+/* 下划线式 Tab（派生分支 / 全局派生 / 笔记） */
+.panel-tab-bar { display: flex; gap: 18px; margin: 18px 0 4px; border-bottom: 1px solid var(--border-2); }
 .panel-tab-bar button {
   position: relative;
   padding: 0 2px 10px;
@@ -796,6 +796,19 @@ button { font: inherit; color: inherit; }
 .subdoc-card { padding: 16px; background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--r4); box-shadow: var(--sh-sm); }
 .subdoc-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .subdoc-card-title { display: grid; min-width: 0; gap: 6px; }
+.subdoc-source-label {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  overflow: hidden;
+  color: var(--text-2);
+  background: var(--fill-inset);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .subdoc-card-actions { display: flex; flex: none; align-items: center; gap: 6px; }
 .subdoc-stop-button { min-width: 44px; min-height: 44px; color: var(--danger); white-space: nowrap; }
 .subdoc-card h3 {

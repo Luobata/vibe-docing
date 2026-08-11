@@ -259,6 +259,8 @@ export function computeNodePath(
   return path
 }
 
+export type SubdocPanelTab = 'derivations' | 'global' | 'notes'
+
 interface WorkbenchData {
   activeSubdocId: string | null
   anchoredNoteId: string | null
@@ -276,7 +278,7 @@ interface WorkbenchData {
   panelRoles: typeof WORKBENCH_PANEL_ROLES
   rootNodeId: string | null
   routeByNodeId: Record<string, RouteConvergence>
-  subdocPanelTab: 'derivations' | 'notes'
+  subdocPanelTab: SubdocPanelTab
   subdocTabs: string[]
   toast: string | ToastNotice | null
   trash: NodeRow[]
@@ -308,7 +310,7 @@ export interface WorkbenchState extends WorkbenchData {
   setMergeState(nodeId: string, mergeState: 'merging' | 'merged' | null): void
   setNotesForMain(rows: AnnotationRow[]): void
   setRouteState(nodeId: string, route: RouteConvergence): void
-  setSubdocPanelTab(tab: 'derivations' | 'notes'): void
+  setSubdocPanelTab(tab: SubdocPanelTab): void
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string | ToastNotice): void
   setTrash(nodes: NodeRow[]): void

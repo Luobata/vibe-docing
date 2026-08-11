@@ -27,6 +27,14 @@ describe('workbench route', () => {
     expect(parseWorkbenchRoute(new URL('http://localhost/trash/tree-1')).view).toBe('trash')
   })
 
+  it('round-trips the global derivation panel', () => {
+    const url = serializeWorkbenchRoute({
+      nodeId: 'root', panel: 'global', subdocId: 'answer', treeId: 'tree-1', view: 'document',
+    })
+    expect(url).toBe('/trees/tree-1/documents/root?subdoc=answer&panel=global')
+    expect(parseWorkbenchRoute(new URL(`http://localhost${url}`)).panel).toBe('global')
+  })
+
   it('hydrates the exact tree hierarchy from the URL after refresh', async () => {
     const root = { id: 'root', parent_id: null, is_deleted: 0, sort_order: 0, status: 'complete', tree_id: 'tree-1' } as NodeRow
     const child = { ...root, id: 'child', parent_id: 'root' }

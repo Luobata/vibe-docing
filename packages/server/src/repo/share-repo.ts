@@ -6,6 +6,7 @@ import { newId } from '../util/ids'
 export interface ShareRow {
   id: string
   tree_id: string
+  node_id: string
   token_hash: string
   token_hint: string
   is_enabled: 0 | 1
@@ -23,46 +24,48 @@ export const tokenForShare = (id: string): string =>
   createHash('sha256').update(`document-share:${id}`, 'utf8').digest('base64url')
 
 export interface ShareRepo {
-  createActive(treeId: string): { row: ShareRow; token: string }
-  getActiveForTree(treeId: string): ShareRow | undefined
+  createActive(treeId: string, nodeId: string): { row: ShareRow; token: string }
+  getActiveForNode(nodeId: string): ShareRow | undefined
   getEnabledByToken(token: string): ShareRow | undefined
-  revoke(treeId: string): boolean
+  revoke(nodeId: string): boolean
 }
 
 export function createShareRepo(db: Db, clock: Clock): ShareRepo {
-  const createActive = db.transaction((treeId: string) => {
-    const existing = getActiveForTree(treeId)
+  const createActive = db.transaction((treeId: string, nodeId: string) => {
+    const existing = getActiveForNode(nodeId)
     if (existing) return { row: existing, token: tokenForShare(existing.id) }
     const id = newId()
     const token = tokenForShare(id)
     const now = clock.now()
     // Defensive cleanup also makes this safe if legacy data lacked the index.
     db.prepare(`UPDATE document_shares SET is_enabled = 0, updated_at = ?, revoked_at = ?
-                WHERE tree_id = ? AND is_enabled = 1`).run(now, now, treeId)
+                WHERE node_id = ? AND is_enabled = 1`).run(now, now, nodeId)
     db.prepare(`INSERT INTO document_shares
-      (id, tree_id, token_hash, token_hint, is_enabled, created_at, updated_at, revoked_at)
-      VALUES (?, ?, ?, ?, 1, ?, ?, NULL)`)
-      .run(id, treeId, hashShareToken(token), token.slice(-6), now, now)
-    return { row: getActiveForTree(treeId)!, token }
+      (id, tree_id, node_id, token_hash, token_hint, is_enabled, created_at, updated_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, NULL)`)
+      .run(id, treeId, nodeId, hashShareToken(token), token.slice(-6), now, now)
+    return { row: getActiveForNode(nodeId)!, token }
   })
 
-  function getActiveForTree(treeId: string): ShareRow | undefined {
-    return db.prepare('SELECT * FROM document_shares WHERE tree_id = ? AND is_enabled = 1')
-      .get(treeId) as ShareRow | undefined
+  function getActiveForNode(nodeId: string): ShareRow | undefined {
+    return db.prepare('SELECT * FROM document_shares WHERE node_id = ? AND is_enabled = 1')
+      .get(nodeId) as ShareRow | undefined
   }
 
   function getEnabledByToken(token: string): ShareRow | undefined {
     return db.prepare(`SELECT document_shares.* FROM document_shares
       JOIN trees ON trees.id = document_shares.tree_id
-      WHERE token_hash = ? AND document_shares.is_enabled = 1 AND trees.is_deleted = 0`)
+      JOIN nodes ON nodes.id = document_shares.node_id AND nodes.tree_id = document_shares.tree_id
+      WHERE token_hash = ? AND document_shares.is_enabled = 1
+        AND trees.is_deleted = 0 AND nodes.is_deleted = 0`)
       .get(hashShareToken(token)) as ShareRow | undefined
   }
 
-  function revoke(treeId: string): boolean {
+  function revoke(nodeId: string): boolean {
     const now = clock.now()
     return db.prepare(`UPDATE document_shares SET is_enabled = 0, updated_at = ?, revoked_at = ?
-      WHERE tree_id = ? AND is_enabled = 1`).run(now, now, treeId).changes === 1
+      WHERE node_id = ? AND is_enabled = 1`).run(now, now, nodeId).changes === 1
   }
 
-  return { createActive, getActiveForTree, getEnabledByToken, revoke }
+  return { createActive, getActiveForNode, getEnabledByToken, revoke }
 }

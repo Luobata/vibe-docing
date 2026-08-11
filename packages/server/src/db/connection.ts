@@ -41,6 +41,7 @@ function migrate(db: Db): void {
     CREATE TABLE IF NOT EXISTS document_shares (
       id TEXT PRIMARY KEY,
       tree_id TEXT NOT NULL REFERENCES trees(id),
+      node_id TEXT NOT NULL REFERENCES nodes(id),
       token_hash TEXT NOT NULL,
       token_hint TEXT NOT NULL,
       is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -49,8 +50,20 @@ function migrate(db: Db): void {
       revoked_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_document_shares_tree ON document_shares(tree_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_tree
-      ON document_shares(tree_id) WHERE is_enabled = 1;
+  `)
+
+  const shareColumns = db.prepare('PRAGMA table_info(document_shares)').all() as Array<{ name: string }>
+  if (!shareColumns.some((column) => column.name === 'node_id')) {
+    db.exec('ALTER TABLE document_shares ADD COLUMN node_id TEXT REFERENCES nodes(id)')
+  }
+  db.exec(`
+    UPDATE document_shares
+    SET node_id = (SELECT root_node_id FROM trees WHERE trees.id = document_shares.tree_id)
+    WHERE node_id IS NULL;
+    DROP INDEX IF EXISTS idx_document_shares_active_tree;
+    CREATE INDEX IF NOT EXISTS idx_document_shares_node ON document_shares(node_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_node
+      ON document_shares(node_id) WHERE is_enabled = 1;
   `)
 }
 

@@ -113,6 +113,7 @@ export interface VisualArtifactRow {
 /** Management API view. Tokens and hashes never cross this boundary. */
 export interface DocumentShareView {
   enabled: true
+  nodeId: string
   url: string
   markdownUrl: string
   createdAt: string

@@ -10,19 +10,20 @@ type VisualArtifactRepo = ReturnType<typeof createVisualArtifactRepo>
 export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: VisualArtifactRepo) {
   const view = (row: ShareRow, token = tokenForShare(row.id)): DocumentShareView => ({
     enabled: true,
+    nodeId: row.node_id,
     url: `/share/${token}`,
     markdownUrl: `/share/${token}.md`,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   })
 
-  function get(treeId: string): DocumentShareView | null {
-    const row = shares.getActiveForTree(treeId)
+  function get(nodeId: string): DocumentShareView | null {
+    const row = shares.getActiveForNode(nodeId)
     return row ? view(row) : null
   }
 
-  function create(treeId: string): DocumentShareView {
-    const result = shares.createActive(treeId)
+  function create(treeId: string, nodeId: string): DocumentShareView {
+    const result = shares.createActive(treeId, nodeId)
     return view(result.row, result.token)
   }
 
@@ -40,10 +41,16 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
       list.push(row)
       byParent.set(row.parent_id, list)
     }
-    const root = rows.find((row) => row.id === tree.root_node_id)
+    const root = rows.find((row) => row.id === share.node_id)
     if (!root) return undefined
+    const assemble = (row: NodeRow): ShareNode => ({
+      row,
+      children: (byParent.get(row.id) ?? []).map(assemble),
+    })
+    const assembledRoot = assemble(root)
     const visuals = new Map<string, VisualArtifact>()
-    for (const row of rows) {
+    const visit = (node: ShareNode): void => {
+      const row = node.row
       for (const source of [row.user_input, row.ai_response]) {
         for (const run of prosemirrorToRenderRuns(source)) {
           if (run.type !== 'visual') continue
@@ -57,12 +64,10 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
           }
         }
       }
+      for (const child of node.children) visit(child)
     }
-    const assemble = (row: NodeRow): ShareNode => ({
-      row,
-      children: (byParent.get(row.id) ?? []).map(assemble),
-    })
-    return { tree, root: assemble(root), visuals }
+    visit(assembledRoot)
+    return { tree, root: assembledRoot, visuals }
   }
 
   return { create, documentForToken, get, revoke: shares.revoke }

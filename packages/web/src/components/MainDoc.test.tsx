@@ -117,6 +117,30 @@ describe('MainDoc fork flow', () => {
     expect(await screen.findByLabelText('派生来源')).toHaveTextContent('MemoryScope 增加 roleId')
   })
 
+  it('returns a whole-document child to the global derivation tab without a false anchor', async () => {
+    const root = { ...node('root', null), user_input: '架构方案' }
+    const child = { ...node('child', 'root'), user_input: '全局追问' }
+    const source = {
+      anchor_from: null, anchor_to: null, child_node_id: 'child', created_at: '', id: 'ann-whole',
+      kind: 'whole', node_id: 'root', note: null, quoted_text: null,
+    }
+    const api = {
+      getNode: vi.fn(async (id: string) => id === 'child'
+        ? { annotations: [], node: child, segments: [] }
+        : { annotations: [source], node: root, segments: [] }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root, child], rootNodeId: 'root', treeId: 't' })
+    useWorkbench.getState().setMain('child')
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    const context = await screen.findByLabelText('派生来源')
+    fireEvent.click(within(context).getByRole('button', { name: '返回来源' }))
+    expect(useWorkbench.getState().mainNodeId).toBe('root')
+    expect(useWorkbench.getState().subdocPanelTab).toBe('global')
+    expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
+    expect(useWorkbench.getState().anchoredSubdocId).toBeNull()
+  })
+
   it('forks the selected text and opens the returned child tab', async () => {
     const root = node('root', null)
     const child = { ...node('child', 'root'), user_input: '深入' }
@@ -321,9 +345,11 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     // now that root has an answer, the follow-up forks from root
     await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '追问' }), expect.any(AbortSignal)))
+    expect(useWorkbench.getState().subdocPanelTab).toBe('global')
+    expect(useWorkbench.getState().subdocTabs).toContain('child')
   })
 
-  it('streams an answer in place without opening a subdoc tab or promoting', async () => {
+  it('streams an answer in place while exposing the direct turn as a global derivation', async () => {
     const root = node('root', null)
     const answer = { ...node('answer', 'root'), user_input: '持久化怎么配？' }
     const streamAnswer = vi.fn(async (_id: string, _question: string, handlers: {
@@ -349,10 +375,12 @@ describe('MainDoc fork flow', () => {
     // the question shows in place, paired with the answer, in the conversation region
     expect(await screen.findByTestId('turn-question')).toHaveTextContent('持久化怎么配？')
     expect(await screen.findByText('回答')).toBeInTheDocument()
-    // linear: no promotion, no subdoc tab, no routing/migration UI
+    // The main transcript stays in place while the direct whole-document fork
+    // is also discoverable in the dedicated global derivation tab.
     expect(useWorkbench.getState().mainNodeId).toBe('root')
-    expect(useWorkbench.getState().activeSubdocId).toBeNull()
-    expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
+    expect(useWorkbench.getState().activeSubdocId).toBe('answer')
+    expect(useWorkbench.getState().subdocTabs).toContain('answer')
+    expect(useWorkbench.getState().subdocPanelTab).toBe('global')
     expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
     expect(screen.queryByRole('button', { name: '查看迁移位置' })).toBeNull()
   })
@@ -471,7 +499,7 @@ describe('MainDoc fork flow', () => {
     expect(screen.queryByRole('button', { name: '搬过去' })).toBeNull()
   })
 
-  it('dismisses a route suggestion without migrating or changing subdocTabs', async () => {
+  it('dismisses a route suggestion without migrating the direct global derivation', async () => {
     const root = node('root', null)
     const answer = { ...node('answer', 'root'), user_input: '继续' }
     const candidate: RouteCandidate = {
@@ -499,7 +527,7 @@ describe('MainDoc fork flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: '留下' }))
 
     expect(migrate).not.toHaveBeenCalled()
-    expect(useWorkbench.getState().subdocTabs).not.toContain('answer')
+    expect(useWorkbench.getState().subdocTabs).toContain('answer')
     expect(screen.queryByRole('button', { name: '留下' })).toBeNull()
   })
 

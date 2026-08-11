@@ -137,6 +137,8 @@ describe('workbench store', () => {
   it('tracks subdoc panel tab and one-shot note/subdocument anchors', () => {
     const s = useWorkbench.getState()
     expect(useWorkbench.getState().subdocPanelTab).toBe('derivations')
+    s.setSubdocPanelTab('global')
+    expect(useWorkbench.getState().subdocPanelTab).toBe('global')
     s.setSubdocPanelTab('notes')
     expect(useWorkbench.getState().subdocPanelTab).toBe('notes')
     s.setAnchoredNoteId('ann-9')

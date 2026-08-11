@@ -1,10 +1,10 @@
 import type { Api } from '../api/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWorkbench } from '../state/workbench-store'
+import { useWorkbench, type SubdocPanelTab } from '../state/workbench-store'
 
 export interface WorkbenchRoute {
   nodeId: string | null
-  panel: 'derivations' | 'notes'
+  panel: SubdocPanelTab
   subdocId: string | null
   treeId: string | null
   view: 'document' | 'trash'
@@ -22,9 +22,10 @@ export function parseWorkbenchRoute(locationLike: Pick<Location, 'pathname' | 's
   }
   const document = locationLike.pathname.match(/^\/trees\/([^/]+)\/documents\/([^/]+)\/?$/)
   const params = new URLSearchParams(locationLike.search)
+  const panel = params.get('panel')
   return {
     nodeId: decode(document?.[2]),
-    panel: params.get('panel') === 'notes' ? 'notes' : 'derivations',
+    panel: panel === 'notes' || panel === 'global' ? panel : 'derivations',
     subdocId: params.get('subdoc'),
     treeId: decode(document?.[1]),
     view: 'document',

@@ -1,5 +1,5 @@
 import type { AnnotationRow, NodeRow } from '@vibe/shared'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { generationTaskRegistry, useWorkbench } from '../state/workbench-store'
@@ -69,6 +69,56 @@ describe('SubdocPanelTabs generation summary', () => {
     } satisfies AnnotationRow
     render(<ApiProvider api={{} as never}><SubdocPanelTabs annotations={[note]} canCreateNote={false} onCreateNote={() => {}} /></ApiProvider>)
     expect(screen.getByRole('tab', { name: /派生分支.*1/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /全局派生.*0/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /笔记.*1/ })).toBeInTheDocument()
+  })
+
+  it('separates direct selection, global, and legacy branches without showing descendants', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [
+        node('root', null),
+        node('selection', 'root'),
+        node('global', 'root'),
+        node('legacy', 'root'),
+        node('nested-global', 'selection'),
+      ],
+      rootNodeId: 'root',
+      treeId: 'tree',
+    })
+    const annotations: AnnotationRow[] = [
+      {
+        anchor_from: 1, anchor_to: 4, child_node_id: 'selection', created_at: '', id: 'selection-source',
+        kind: 'selection', node_id: 'root', note: null, quoted_text: '上下文',
+      },
+      {
+        anchor_from: null, anchor_to: null, child_node_id: 'global', created_at: '', id: 'global-source',
+        kind: 'whole', node_id: 'root', note: null, quoted_text: null,
+      },
+      {
+        anchor_from: null, anchor_to: null, child_node_id: 'nested-global', created_at: '', id: 'nested-source',
+        kind: 'whole', node_id: 'selection', note: null, quoted_text: null,
+      },
+    ]
+    render(<ApiProvider api={{} as never}><SubdocPanelTabs annotations={annotations} canCreateNote={false} onCreateNote={() => {}} /></ApiProvider>)
+
+    expect(screen.getByRole('tab', { name: /派生分支.*2/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /全局派生.*1/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /selection/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /legacy/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /nested-global/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /全局派生.*1/ }))
+    expect(screen.getByRole('tab', { name: /global/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /selection/ })).not.toBeInTheDocument()
+    expect(screen.getByText('来源：整份文档追问 · 无具体原文锚点')).toBeInTheDocument()
+  })
+
+  it('shows category-specific empty states', () => {
+    useWorkbench.getState().loadTree({ nodes: [node('root', null)], rootNodeId: 'root', treeId: 'tree' })
+    render(<ApiProvider api={{} as never}><SubdocPanelTabs annotations={[]} canCreateNote={false} onCreateNote={() => {}} /></ApiProvider>)
+
+    expect(screen.getByText('还没有上下文派生')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: /全局派生.*0/ }))
+    expect(screen.getByText('还没有全局派生')).toBeInTheDocument()
   })
 })

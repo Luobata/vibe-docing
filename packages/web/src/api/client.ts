@@ -171,12 +171,12 @@ export function createApi(options?: {
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
     getTree: (treeId: string) =>
       json<{ nodes: NodeRow[]; tree: TreeRow }>(`/trees/${treeId}`),
-    getShare: (treeId: string) =>
-      json<DocumentShareResponse>(`/trees/${treeId}/share`),
-    createShare: (treeId: string) =>
-      json<DocumentShareResponse>(`/trees/${treeId}/share`, { method: 'POST' }),
-    revokeShare: (treeId: string) =>
-      json<{ ok: true }>(`/trees/${treeId}/share`, { method: 'DELETE' }),
+    getShare: (nodeId: string) =>
+      json<DocumentShareResponse>(`/nodes/${nodeId}/share`),
+    createShare: (nodeId: string) =>
+      json<DocumentShareResponse>(`/nodes/${nodeId}/share`, { method: 'POST' }),
+    revokeShare: (nodeId: string) =>
+      json<{ ok: true }>(`/nodes/${nodeId}/share`, { method: 'DELETE' }),
     listDeletedTrees: () => json<{ trees: TreeRow[] }>('/trees/deleted'),
     listTrees: () => json<{ trees: TreeRow[] }>('/trees'),
     renameTree: (treeId: string, title: string) =>

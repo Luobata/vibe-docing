@@ -13,6 +13,7 @@ import { DocView } from './DocView'
 import { MergeButton } from './MergeButton'
 import { nodeTitle } from './TreePanel'
 import { scrollMainDocumentToTop, transitionDocument } from '../flow/document-transition'
+import { isSelectionSource } from './subdoc-classification'
 
 export type GenerationBadgeStatus = Exclude<GenerationTaskStatus, 'complete'>
 
@@ -67,7 +68,15 @@ export function GenerationBadge({ state }: { state: GenerationBadgeState }) {
   )
 }
 
-export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[] }) {
+export function SubdocTabs({
+  annotations = [],
+  emptyLabel = '还没有派生分支',
+  nodeIds,
+}: {
+  annotations?: AnnotationRow[]
+  emptyLabel?: string
+  nodeIds?: string[]
+}) {
   const api = useApi()
   const activeSubdocId = useWorkbench((state) => state.activeSubdocId)
   const anchoredSubdocId = useWorkbench((state) => state.anchoredSubdocId)
@@ -76,6 +85,7 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
   const setActiveSubdoc = useWorkbench((state) => state.setActiveSubdoc)
   const setAnchoredSubdocId = useWorkbench((state) => state.setAnchoredSubdocId)
   const setFocusedAnnotation = useWorkbench((state) => state.setFocusedAnnotation)
+  const setMain = useWorkbench((state) => state.setMain)
   const subdocTabs = useWorkbench((state) => state.subdocTabs)
   const tasksByKey = useGenerationTasks((snapshot) => snapshot.byKey)
   const taskKeyByTarget = useGenerationTasks((snapshot) => snapshot.byTarget)
@@ -84,18 +94,33 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
   const cardRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
 
-  const currentId = activeSubdocId ?? subdocTabs[0]
+  const displayedNodeIds = nodeIds ?? subdocTabs
+  const currentId = activeSubdocId && displayedNodeIds.includes(activeSubdocId)
+    ? activeSubdocId
+    : displayedNodeIds[0]
   const current = currentId ? nodesById[currentId] : undefined
   const currentTaskKey = currentId ? taskKeyByTarget[currentId] : undefined
   const currentTask = currentTaskKey ? tasksByKey[currentTaskKey] : undefined
   const currentBadge = generationBadgeState(current, currentTask)
+  const currentSource = current
+    ? annotations.find((item) => item.child_node_id === current.id)
+    : undefined
+  const currentSourceKind = currentSource
+    ? isSelectionSource(currentSource) ? 'selection' : 'whole'
+    : null
 
   function locateSource(nodeId: string): void {
     const source = annotations.find((item) =>
-      item.child_node_id === nodeId && item.anchor_from !== null && item.anchor_to !== null,
+      item.child_node_id === nodeId && isSelectionSource(item),
     )
-    if (source) setFocusedAnnotation(source.id)
+    if (!source) return
+    setFocusedAnnotation(source.id)
+    setAnchoredSubdocId(nodeId)
   }
+
+  useEffect(() => {
+    if (currentId && currentId !== activeSubdocId) setActiveSubdoc(currentId)
+  }, [activeSubdocId, currentId, setActiveSubdoc])
 
   useEffect(() => {
     if (!pendingStop) return
@@ -107,7 +132,7 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
   }, [pendingStop, tasksByKey])
 
   useEffect(() => {
-    if (!anchoredSubdocId || !subdocTabs.includes(anchoredSubdocId)) return
+    if (!anchoredSubdocId || !displayedNodeIds.includes(anchoredSubdocId)) return
     setActiveSubdoc(anchoredSubdocId)
     setFlashSubdocId(anchoredSubdocId)
     const target = Array.from(
@@ -126,9 +151,9 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
     setAnchoredSubdocId(null)
     const timer = setTimeout(() => setFlashSubdocId(null), 10_000)
     return () => clearTimeout(timer)
-  }, [anchoredSubdocId, setActiveSubdoc, setAnchoredSubdocId, subdocTabs])
+  }, [anchoredSubdocId, displayedNodeIds, setActiveSubdoc, setAnchoredSubdocId])
 
-  if (subdocTabs.length === 0) return <p className="empty-state">还没有派生分支</p>
+  if (displayedNodeIds.length === 0) return <p className="empty-state">{emptyLabel}</p>
 
   async function retry(target: NodeRow, key: string): Promise<void> {
     const activeKey = generationTaskRegistry.getSnapshot().byTarget[target.id]
@@ -199,7 +224,7 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
   return (
     <div className="subdoc-tabs-shell">
       <div aria-label="子文档标签" className="subdoc-tabs" ref={tabsRef} role="tablist">
-        {subdocTabs.map((id) => {
+        {displayedNodeIds.map((id) => {
           const title = nodeTitle(nodesById[id])
           const taskKey = taskKeyByTarget[id]
           const task = taskKey ? tasksByKey[taskKey] : undefined
@@ -215,7 +240,8 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
               key={id}
               onClick={() => {
                 setActiveSubdoc(id)
-                locateSource(id)
+                const source = annotations.find((item) => item.child_node_id === id)
+                if (isSelectionSource(source)) locateSource(id)
               }}
               role="tab"
               title={title}
@@ -232,6 +258,16 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
           <header>
             <div className="subdoc-card-title">
               <h3>{nodeTitle(current)}</h3>
+              {currentSourceKind === 'selection' && (
+                <span className="subdoc-source-label" data-source-kind="selection">
+                  来源：选中文本派生
+                </span>
+              )}
+              {currentSourceKind === 'whole' && (
+                <span className="subdoc-source-label" data-source-kind="whole">
+                  来源：整份文档追问 · 无具体原文锚点
+                </span>
+              )}
               {currentBadge && (
                 <span
                   aria-live="polite"
@@ -271,9 +307,18 @@ export function SubdocTabs({ annotations = [] }: { annotations?: AnnotationRow[]
               >
                 聚焦此文档
               </button>
-              {annotations.some((item) => item.child_node_id === current.id && item.anchor_from !== null) && (
+              {currentSourceKind === 'selection' && (
                 <button className="quiet-button" onClick={() => locateSource(current.id)} type="button">
                   定位原文
+                </button>
+              )}
+              {currentSourceKind === 'whole' && current.parent_id && (
+                <button
+                  className="quiet-button"
+                  onClick={() => { if (current.parent_id) setMain(current.parent_id) }}
+                  type="button"
+                >
+                  查看主文档
                 </button>
               )}
             </div>

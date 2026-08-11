@@ -12,6 +12,7 @@ import { SettingsPanel } from './SettingsPanel'
 import { SharePanel } from './SharePanel'
 import { SubdocPanelTabs } from './SubdocPanelTabs'
 import { GenerationBadge, generationBadgeState } from './SubdocTabs'
+import { groupSubdocIds, isSelectionSource } from './subdoc-classification'
 import { TrashPage } from './TrashPage'
 import { TreePanel } from './TreePanel'
 import { TreeLauncher } from './TreeLauncher'
@@ -29,6 +30,7 @@ function SubdocOverflow({ annotations, nodeIds }: { annotations: AnnotationRow[]
   const activeSubdocId = useWorkbench((state) => state.activeSubdocId)
   const nodesById = useWorkbench((state) => state.nodesById)
   const setActiveSubdoc = useWorkbench((state) => state.setActiveSubdoc)
+  const setAnchoredSubdocId = useWorkbench((state) => state.setAnchoredSubdocId)
   const setFocusedAnnotation = useWorkbench((state) => state.setFocusedAnnotation)
   const tasksByKey = useGenerationTasks((snapshot) => snapshot.byKey)
   const taskKeyByTarget = useGenerationTasks((snapshot) => snapshot.byTarget)
@@ -62,8 +64,11 @@ function SubdocOverflow({ annotations, nodeIds }: { annotations: AnnotationRow[]
     const id = nodeIds[index]
     if (!id) return
     setActiveSubdoc(id)
-    const source = annotations.find((item) => item.child_node_id === id && item.anchor_from !== null)
-    if (source) setFocusedAnnotation(source.id)
+    const source = annotations.find((item) => item.child_node_id === id)
+    if (isSelectionSource(source)) {
+      setFocusedAnnotation(source.id)
+      setAnchoredSubdocId(id)
+    }
     setOpen(false)
     buttonRef.current?.focus()
   }
@@ -158,7 +163,6 @@ export function Workbench() {
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
-  const rootNodeId = useWorkbench((state) => state.rootNodeId)
   const notesForMain = useWorkbench((state) => state.notesForMain)
   const toast = useWorkbench((state) => state.toast)
   const treeId = useWorkbench((state) => state.treeId)
@@ -175,6 +179,12 @@ export function Workbench() {
   const drawerRestoreFocusRef = useRef<HTMLElement | null>(null)
   const subdocRef = useRef<HTMLElement>(null)
   const route = useWorkbenchRoute(api)
+  const subdocGroups = groupSubdocIds(subdocTabs, notesForMain)
+  const overflowNodeIds = subdocPanelTab === 'global'
+    ? subdocGroups.global.slice(6)
+    : subdocPanelTab === 'derivations'
+      ? subdocGroups.contextual.slice(6)
+      : []
 
   function closeTreeDrawer(): void {
     setTreeDrawerOpen(false)
@@ -359,7 +369,7 @@ export function Workbench() {
                 {showVersions ? '收起版本' : '版本历史'}
               </button>
             )}
-            <SharePanel disabled={!treeId || !rootNodeId} portal={portalRoot} treeId={treeId} />
+            <SharePanel disabled={!mainNodeId} nodeId={mainNodeId} portal={portalRoot} />
             <button
               aria-label={focusMode ? '退出沉浸聚焦' : '进入沉浸聚焦'}
               className="quiet-button"
@@ -413,7 +423,7 @@ export function Workbench() {
         </header>
         <div className="subdoc-panel-content">
           <SubdocPanelTabs annotations={notesForMain} canCreateNote={!!mainNodeId} onCreateNote={handleCreateNote} />
-          {subdocPanelTab === 'derivations' && subdocTabs.length > 6 && <SubdocOverflow annotations={notesForMain} nodeIds={subdocTabs.slice(6)} />}
+          {overflowNodeIds.length > 0 && <SubdocOverflow annotations={notesForMain} nodeIds={overflowNodeIds} />}
         </div>
       </section>
       {toast && (

@@ -99,6 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_visual_artifacts_latest
 CREATE TABLE IF NOT EXISTS document_shares (
   id TEXT PRIMARY KEY,
   tree_id TEXT NOT NULL REFERENCES trees(id),
+  node_id TEXT NOT NULL REFERENCES nodes(id),
   token_hash TEXT NOT NULL,
   token_hint TEXT NOT NULL,
   is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -108,5 +109,3 @@ CREATE TABLE IF NOT EXISTS document_shares (
 );
 
 CREATE INDEX IF NOT EXISTS idx_document_shares_tree ON document_shares(tree_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_tree
-  ON document_shares(tree_id) WHERE is_enabled = 1;
