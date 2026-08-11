@@ -107,6 +107,7 @@ export function SharePanel({ disabled, nodeId, portal }: { disabled: boolean; no
     <button aria-expanded={open} className="quiet-button" disabled={disabled} onClick={() => setOpen((value) => !value)} ref={triggerRef} title={disabled ? '请先打开主文档后再分享' : '分享当前文档'} type="button">分享</button>
     {open && portal && createPortal(<div aria-label="文档分享" className="share-panel" ref={panelRef} role="region" style={position}>
       <div className="share-panel-heading"><strong>文档分享</strong><button aria-label="关闭分享面板" onClick={closePanel} type="button">×</button></div>
+      {share && ['shared','copy-error','closing','close-error'].includes(phase) && <p className="share-ai-links">AI 读取：<a href={share.markdownUrl}>Markdown</a> · <a href={share.jsonUrl}>JSON</a></p>}
       {phase === 'loading' && <p role="status">正在读取分享状态…</p>}
       {(phase === 'unshared' || phase === 'create-error') && <><p>分享当前文档及其派生内容，内容会随源文档更新。</p>{phase === 'create-error' && <p className="share-error" role="alert">读取或创建失败，请重试。</p>}<button className="primary-button" onClick={create} type="button">{phase === 'create-error' ? '重试' : '创建分享链接'}</button></>}
       {phase === 'creating' && <button className="primary-button" disabled type="button">正在创建…</button>}

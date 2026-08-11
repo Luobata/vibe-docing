@@ -1,4 +1,5 @@
 export * from './prosemirror'
+export * from './share-schema'
 export * from './types'
 export * from './visual-artifact'
 export * from './visual-layout'

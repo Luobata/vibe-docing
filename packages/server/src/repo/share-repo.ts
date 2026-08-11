@@ -20,8 +20,9 @@ export const hashShareToken = (token: string): string =>
 
 // The random row id is non-secret input; the public token is derived rather
 // than persisted, while token lookup still uses only its SHA-256 digest.
+const SHARE_TOKEN_DOMAIN = 'document-share:'
 export const tokenForShare = (id: string): string =>
-  createHash('sha256').update(`document-share:${id}`, 'utf8').digest('base64url')
+  createHash('sha256').update(`${SHARE_TOKEN_DOMAIN}${id}`, 'utf8').digest('base64url')
 
 export interface ShareRepo {
   createActive(treeId: string, nodeId: string): { row: ShareRow; token: string }

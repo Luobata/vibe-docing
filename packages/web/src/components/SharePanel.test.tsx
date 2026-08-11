@@ -4,7 +4,7 @@ import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
 import { SharePanel } from './SharePanel'
 
-const share = { enabled: true as const, nodeId: 'node', url: '/share/token', markdownUrl: '/share/token.md', createdAt: 'now', updatedAt: 'now' }
+const share = { enabled: true as const, nodeId: 'node', url: '/share/token', markdownUrl: '/share/token.md', jsonUrl: '/share/token.json', createdAt: 'now', updatedAt: 'now' }
 
 describe('SharePanel', () => {
   beforeEach(() => { useWorkbench.getState().reset() })
@@ -23,6 +23,8 @@ describe('SharePanel', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/share/token`))
     expect(useWorkbench.getState().toast).toMatchObject({ message: '分享链接已复制', variant: 'success' })
     expect(api.createShare).toHaveBeenCalledWith('node')
+    expect(screen.getByRole('link', { name: 'Markdown' })).toHaveAttribute('href', '/share/token.md')
+    expect(screen.getByRole('link', { name: 'JSON' })).toHaveAttribute('href', '/share/token.json')
   })
 
   it('selects the URL on clipboard failure and keeps a failed revoke active', async () => {

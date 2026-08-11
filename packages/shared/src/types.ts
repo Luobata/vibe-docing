@@ -116,6 +116,7 @@ export interface DocumentShareView {
   nodeId: string
   url: string
   markdownUrl: string
+  jsonUrl: string
   createdAt: string
   updatedAt: string
 }

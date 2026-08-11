@@ -1,8 +1,14 @@
 import { plainTextToProseMirror } from '@vibe/shared'
 import { describe, expect, it } from 'vitest'
 import { buildApp } from '../app'
+import { tokenForShare } from '../repo/share-repo'
 
 describe('document sharing', () => {
+  it('derives distinct deterministic 43-character tokens from share row ids', () => {
+    expect(tokenForShare('share-a')).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(tokenForShare('share-a')).toBe(tokenForShare('share-a'))
+    expect(tokenForShare('share-a')).not.toBe(tokenForShare('share-b'))
+  })
   it('is idempotent, rotates after revoke, and serves the latest tree', async () => {
     const app = buildApp()
     const created = await app.inject({ method: 'POST', url: '/api/trees', payload: { title: 'Shared <Tree>' } })
@@ -20,6 +26,8 @@ describe('document sharing', () => {
     expect(html.headers['x-robots-tag']).toBe('noindex,nofollow')
     expect(html.body).toContain('&lt;Tree&gt;')
     expect(html.body).toContain('rel="alternate"')
+    expect(html.body).toContain('type="application/json"')
+    expect(html.body).toContain('AI 读取')
     expect(html.body).not.toContain(tree.id)
 
     app.deps.nodes.updateContent(rootNode.id, { aiResponse: plainTextToProseMirror('edited live') })
@@ -31,9 +39,14 @@ describe('document sharing', () => {
     expect(markdown.body).toContain('child answer')
     expect(markdown.body.match(/^# /gm)).toHaveLength(1)
     expect(markdown.body).not.toContain(rootNode.id)
+    const json = await app.inject({ method: 'GET', url: first.jsonUrl })
+    expect(json.headers['content-type']).toContain('application/json')
+    expect(json.json()).toMatchObject({ schemaVersion: 1, share: { scope: 'tree', title: 'Shared <Tree>' } })
 
     expect((await app.inject({ method: 'DELETE', url: `/api/trees/${tree.id}/share` })).statusCode).toBe(200)
     expect((await app.inject({ method: 'GET', url: first.url })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'GET', url: first.markdownUrl })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'GET', url: first.jsonUrl })).statusCode).toBe(404)
     const second = (await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/share` })).json().share
     expect(second.url).not.toBe(first.url)
     expect((await app.inject({ method: 'GET', url: '/share/not-a-token' })).statusCode).toBe(404)
@@ -58,6 +71,8 @@ describe('document sharing', () => {
     })
     const child = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: plainTextToProseMirror('child question') })
     app.deps.nodes.updateContent(child.id, { aiResponse: plainTextToProseMirror('child answer') })
+    const source = app.deps.annotations.create({ nodeId: rootNode.id, kind: 'selection', anchorFrom: 0, anchorTo: 6, quotedText: 'parent', note: '聚焦此处' })
+    app.deps.annotations.linkChild(source.id, child.id)
     const grandchild = app.deps.nodes.create({ treeId: tree.id, parentId: child.id, userInput: plainTextToProseMirror('grandchild question') })
     app.deps.nodes.updateContent(grandchild.id, { aiResponse: plainTextToProseMirror('grandchild answer') })
     const sibling = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: plainTextToProseMirror('sibling question') })
@@ -85,6 +100,14 @@ describe('document sharing', () => {
     expect(childMarkdown.body).toContain('grandchild answer')
     expect(childMarkdown.body).not.toContain('parent answer')
     expect(childMarkdown.body).not.toContain('sibling answer')
+
+    const parentJsonResponse = await app.inject({ method: 'GET', url: parentShare.jsonUrl })
+    const parentJson = parentJsonResponse.json()
+    expect(parentJson.relations.derivations).toEqual([{ fromNodeIndex: 0, quotedText: 'parent', note: '聚焦此处', toNodeIndex: 1 }])
+    expect(parentJson.annotations[0]).toMatchObject({ nodeIndex: 0, kind: 'selection', quotedText: 'parent' })
+    expect(parentMarkdown.body).toContain('引用原文：parent')
+    expect(JSON.stringify(parentJson)).not.toContain(rootNode.id)
+    expect(JSON.stringify(parentJson)).not.toMatch(/tree_id|node_id|token_hash|is_deleted/)
 
     expect((await app.inject({ method: 'DELETE', url: `/api/nodes/${child.id}/share` })).statusCode).toBe(200)
     expect((await app.inject({ method: 'GET', url: childShare.url })).statusCode).toBe(404)
@@ -123,6 +146,12 @@ describe('document sharing', () => {
     expect(markdown.body).toContain('"title": "Canvas 架构"')
     expect(markdown.body).toContain('"description": "公开分享渲染"')
     expect(markdown.body).not.toContain(artifactId)
+
+    const json = (await app.inject({ method: 'GET', url: share.jsonUrl })).json()
+    expect(json.nodes[0].visualRefs).toEqual([{ index: 0, altText: scene.altText }])
+    expect(json.artifacts[0]).toMatchObject({ title: 'Canvas 架构', renderer: 'canvas', nodes: scene.nodes, edges: scene.edges, groups: [] })
+    expect(json.artifacts[0].derivedLayout.nodes).toHaveLength(2)
+    expect(JSON.stringify(json)).not.toContain(artifactId)
 
     const html = await app.inject({ method: 'GET', url: share.url })
     expect(html.statusCode).toBe(200)

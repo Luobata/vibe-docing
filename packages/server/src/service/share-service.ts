@@ -1,4 +1,4 @@
-import { prosemirrorToRenderRuns, type DocumentShareView, type NodeRow, type TreeRow, type VisualArtifact } from '@vibe/shared'
+import { prosemirrorToRenderRuns, type AnnotationKind, type DocumentShareView, type NodeRow, type TreeRow, type VisualArtifact } from '@vibe/shared'
 import type { Db } from '../db/connection'
 import type { ShareRepo, ShareRow } from '../repo/share-repo'
 import { tokenForShare } from '../repo/share-repo'
@@ -13,6 +13,7 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
     nodeId: row.node_id,
     url: `/share/${token}`,
     markdownUrl: `/share/${token}.md`,
+    jsonUrl: `/share/${token}.json`,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   })
@@ -48,6 +49,21 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
       children: (byParent.get(row.id) ?? []).map(assemble),
     })
     const assembledRoot = assemble(root)
+    const includedIds = new Set<string>()
+    const collectIds = (node: ShareNode): void => { includedIds.add(node.row.id); node.children.forEach(collectIds) }
+    collectIds(assembledRoot)
+    const annotations = new Map<string, Array<{ kind: AnnotationKind; quotedText: string | null; note: string | null; childNodeId: string | null }>>()
+    const annotationRows = db.prepare(`SELECT node_id, kind, quoted_text, note, child_node_id
+      FROM annotations WHERE node_id IN (${[...includedIds].map(() => '?').join(',')})
+      ORDER BY created_at ASC, id ASC`).all(...includedIds) as Array<{
+        node_id: string; kind: AnnotationKind; quoted_text: string | null; note: string | null; child_node_id: string | null
+      }>
+    for (const annotation of annotationRows) {
+      const list = annotations.get(annotation.node_id) ?? []
+      list.push({ kind: annotation.kind, quotedText: annotation.quoted_text, note: annotation.note,
+        childNodeId: annotation.child_node_id && includedIds.has(annotation.child_node_id) ? annotation.child_node_id : null })
+      annotations.set(annotation.node_id, list)
+    }
     const visuals = new Map<string, VisualArtifact>()
     const visit = (node: ShareNode): void => {
       const row = node.row
@@ -67,7 +83,7 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
       for (const child of node.children) visit(child)
     }
     visit(assembledRoot)
-    return { tree, root: assembledRoot, visuals }
+    return { tree, root: assembledRoot, visuals, annotations, shareCreatedAt: share.created_at, shareUpdatedAt: share.updated_at }
   }
 
   return { create, documentForToken, get, revoke: shares.revoke }
