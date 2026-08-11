@@ -10,6 +10,10 @@ export type NodeStatus = (typeof NODE_STATUSES)[number]
 export const ANNOTATION_KINDS = ['selection', 'whole'] as const
 export type AnnotationKind = (typeof ANNOTATION_KINDS)[number]
 
+export type VisualAnnotationTarget =
+  | { artifactId: string; revision: number; target: 'whole' }
+  | { artifactId: string; revision: number; target: 'element'; elementType: 'node' | 'edge' | 'group'; elementId: string }
+
 export const SEGMENT_TYPES = [
   'ancestor-full',
   'ancestor-summary',
@@ -61,6 +65,7 @@ export interface AnnotationRow {
   note: string | null
   child_node_id: string | null
   created_at: string
+  visual_target?: VisualAnnotationTarget | null
 }
 
 export interface ContextSegmentRow {
@@ -90,4 +95,30 @@ export interface MergeRow {
   conclusion: string
   landing_segment_id: string
   created_at: string
+}
+
+export interface VisualArtifactRow {
+  artifact_id: string
+  revision: number
+  kind: string
+  title: string
+  alt_text: string
+  renderer: string
+  schema_version: number
+  scene_json: string
+  created_at: string
+  updated_at: string
+}
+
+/** Management API view. Tokens and hashes never cross this boundary. */
+export interface DocumentShareView {
+  enabled: true
+  url: string
+  markdownUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DocumentShareResponse {
+  share: DocumentShareView | null
 }

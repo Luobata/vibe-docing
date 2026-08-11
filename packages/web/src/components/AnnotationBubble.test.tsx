@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { generationTaskRegistry } from '../state/workbench-store'
 import { AnnotationBubble } from './AnnotationBubble'
 
 describe('AnnotationBubble', () => {
+  beforeEach(() => generationTaskRegistry.reset())
   it('supports notes, fork questions, cancellation, and initial focus', () => {
     const onCreateNote = vi.fn()
     const onDismiss = vi.fn()
@@ -25,6 +27,27 @@ describe('AnnotationBubble', () => {
     expect(onForkExpand).toHaveBeenCalledWith('它怎么持久化？')
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(onDismiss).toHaveBeenCalledOnce()
+  })
+
+  it('disables expand only while the same selection task is live', () => {
+    const taskKey = 'fork-expand:root:0:3'
+    generationTaskRegistry.start({
+      key: taskKey,
+      kind: 'fork-expand',
+      ownerMainNodeId: 'root',
+    })
+    render(
+      <AnnotationBubble
+        onCreateNote={() => {}}
+        onDismiss={() => {}}
+        onForkExpand={() => {}}
+        selection={sel}
+        taskKey={taskKey}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('fork-question'), { target: { value: '继续' } })
+    expect(screen.getByRole('button', { name: '就此展开' })).toBeDisabled()
+    expect(screen.getByText('该选区的展开正在进行中')).toHaveAttribute('data-gen-status', 'streaming')
   })
 })
 

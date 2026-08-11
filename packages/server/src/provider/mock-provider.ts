@@ -51,8 +51,13 @@ export function createMockProvider(options: MockProviderOptions = {}): Provider 
         return
       }
 
+      let emitted = 0
       for (const chunk of chunks) {
         streamOptions?.signal?.throwIfAborted()
+        if (options.failAfter !== undefined && emitted >= options.failAfter) {
+          throw new Error('mock stream failure')
+        }
+        emitted += 1
         yield { type: 'text', text: chunk }
       }
     },

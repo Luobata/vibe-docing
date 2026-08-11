@@ -1,25 +1,34 @@
-import { prosemirrorToPlainText, type AnnotationRow, type NodeRow } from '@vibe/shared'
+import { prosemirrorToPlainText, prosemirrorToRenderRuns, type AnnotationRow, type NodeRow, type VisualReference } from '@vibe/shared'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { AnnotationRange } from '../doc/highlight'
 import { renderAnnotatedHtml } from '../doc/markdown'
 import { getPlainSelection, type PlainSelection } from '../doc/selection'
+import { VisualBlockView } from './VisualBlockView'
 
 export function DocView({
   annotations,
   errorText,
+  generationTaskKey,
   node,
   onAnchorClick,
   onContextSelect,
   onRetry,
   onSelect,
+  onVisualAnnotate,
+  retryDisabled = false,
+  retryTaskKey,
 }: {
   annotations: Array<AnnotationRow | { from: number; id: string; to: number }>
   errorText?: string
+  generationTaskKey?: string
   node: NodeRow
   onAnchorClick?(annotationId: string): void
   onContextSelect?(selection: PlainSelection, x: number, y: number): void
-  onRetry(): void
+  onRetry(taskKey: string): void
   onSelect(selection: PlainSelection): void
+  onVisualAnnotate?(reference: VisualReference, from: number, to: number): void
+  retryDisabled?: boolean
+  retryTaskKey?: string
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [subdocTitleCanExpand, setSubdocTitleCanExpand] = useState(false)
@@ -31,7 +40,9 @@ export function DocView({
       ? []
       : [{ from: annotation.anchor_from, id: annotation.id, to: annotation.anchor_to }]
   })
-  const html = renderAnnotatedHtml(text, ranges)
+  const runs = prosemirrorToRenderRuns(node.ai_response)
+  const resolvedGenerationTaskKey = generationTaskKey ?? `retry:${node.id}`
+  const resolvedRetryTaskKey = retryTaskKey ?? `retry:${node.id}`
 
   function selectionPoint(): { x: number; y: number } | null {
     const nativeSelection = window.getSelection()
@@ -55,12 +66,6 @@ export function DocView({
     }
     return selection
   }
-
-  useEffect(() => {
-    const handleSelectionChange = () => { captureSelection(true) }
-    document.addEventListener('selectionchange', handleSelectionChange)
-    return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  })
 
   useLayoutEffect(() => {
     const card = bodyRef.current?.closest<HTMLElement>('.subdoc-card')
@@ -109,7 +114,6 @@ export function DocView({
       <div className="doc-view" data-testid="doc-view">
         <div
           className="doc-body"
-          dangerouslySetInnerHTML={{ __html: html }}
           onClick={(e) => {
             const el = (e.target as HTMLElement).closest('[data-ann-id]')
             const id = el?.getAttribute('data-ann-id')
@@ -118,27 +122,105 @@ export function DocView({
           onContextMenu={handleContextMenu}
           onKeyDown={handleSelectionKeyDown}
           onKeyUp={() => captureSelection(true)}
-          onMouseUp={() => captureSelection(true)}
+          onMouseUp={() => {
+            requestAnimationFrame(() => captureSelection(true))
+          }}
           ref={bodyRef}
           tabIndex={0}
-        />
+        >
+          {runs.map((run, index) => {
+            if (run.type === 'text') return (
+              <div
+                className="doc-text-run"
+                data-canonical-text={run.text}
+                data-text-end={run.end}
+                data-text-start={run.start}
+                dangerouslySetInnerHTML={{ __html: renderAnnotatedHtml(run.text, ranges.flatMap((range) => {
+                  const from = Math.max(range.from, run.start)
+                  const to = Math.min(range.to, run.end)
+                  return from < to ? [{ ...range, from: from - run.start, to: to - run.start }] : []
+                })) }}
+                key={`text-${index}`}
+              />
+            )
+            const visualAnnotations = annotations.filter((annotation): annotation is AnnotationRow =>
+              'visual_target' in annotation
+              && annotation.visual_target?.artifactId === run.reference.artifactId
+              && annotation.visual_target.revision === run.reference.revision)
+            return (
+              <div
+                className={`doc-visual-run${visualAnnotations.length ? ' is-annotated' : ''}`}
+                data-canonical-text={`${run.reference.altText}\n`}
+                data-text-end={run.end}
+                data-text-start={run.start}
+                key={`${run.reference.artifactId}-${run.reference.revision}`}
+              >
+                <VisualBlockView
+                  onAnnotate={onVisualAnnotate ? () => onVisualAnnotate(run.reference, run.start, run.end) : undefined}
+                  reference={run.reference}
+                />
+                {visualAnnotations.length > 0 && (
+                  <div aria-label="可视化批注" className="visual-annotation-markers">
+                    {visualAnnotations.map((annotation, annotationIndex) => (
+                      <button data-ann-id={annotation.id} key={annotation.id} type="button">
+                        图批注 {annotationIndex + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
         {node.status === 'streaming' && (
-          <span aria-label="正在生成" className="streaming-cursor">▍</span>
+          <span
+            aria-label="正在生成"
+            className="streaming-cursor"
+            data-gen-status="streaming"
+            data-task-key={resolvedGenerationTaskKey}
+          >▍</span>
         )}
         {node.status === 'streaming' && text.length === 0 && (
-          <span className="thinking-hint">思考中…</span>
+          <span
+            className="thinking-hint"
+            data-gen-status="streaming"
+            data-task-key={resolvedGenerationTaskKey}
+          >思考中…</span>
         )}
       </div>
       {node.status === 'error' && (
-        <div className="inline-error" role="alert">
+        <div
+          className="inline-error"
+          data-gen-status="error"
+          data-task-key={resolvedGenerationTaskKey}
+          role="alert"
+        >
           <span>{errorText ?? '生成中断，已保留当前内容。'}</span>
-          <button aria-label="retry" onClick={onRetry} type="button">重试</button>
+          <button
+            aria-label="retry"
+            data-generation-retry="true"
+            data-task-key={resolvedRetryTaskKey}
+            disabled={retryDisabled}
+            onClick={() => onRetry(resolvedRetryTaskKey)}
+            type="button"
+          >重试</button>
         </div>
       )}
       {node.status === 'cancelled' && (
-        <div className="cancelled-generation" role="status">
+        <div
+          className="cancelled-generation"
+          data-gen-status="cancelled"
+          data-task-key={resolvedGenerationTaskKey}
+          role="status"
+        >
           <span>已停止生成</span>
-          <button onClick={onRetry} type="button">重新生成</button>
+          <button
+            data-generation-retry="true"
+            data-task-key={resolvedRetryTaskKey}
+            disabled={retryDisabled}
+            onClick={() => onRetry(resolvedRetryTaskKey)}
+            type="button"
+          >重新生成</button>
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { DocView } from './DocView'
 import { SelectionMenu } from './SelectionMenu'
+import { visualRuntimeStore } from '../visual/visual-stream-state'
 
 function node(status: NodeRow['status'] = 'complete'): NodeRow {
   return {
@@ -124,7 +125,36 @@ describe('DocView', () => {
     expect(onAnchorClick).not.toHaveBeenCalled()
   })
 
-  it('shows the selection toolbar on selectionchange without taking focus or clearing selection', () => {
+  it('renders a persisted visual reference and exposes its whole-block note anchor', () => {
+    visualRuntimeStore.dispatch({
+      type: 'visual_ready', placeholderId: 'p', artifactId: 'visual-1', revision: 1,
+      artifact: {
+        schemaVersion: 1, artifactId: 'visual-1', revision: 1, kind: 'flow', renderer: 'svg',
+        title: '流程图', altText: 'A 到 B', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+        edges: [{ id: 'e', source: 'a', target: 'b' }], groups: [],
+      },
+    })
+    const visualNode = {
+      ...node(),
+      ai_response: JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'visual_ref', attrs: { artifactId: 'visual-1', revision: 1, altText: 'A 到 B' } }],
+      }),
+    }
+    const visualAnnotation: AnnotationRow = {
+      anchor_from: null, anchor_to: null, child_node_id: null, created_at: '', id: 'visual-ann',
+      kind: 'whole', node_id: 'n', note: '检查整图', quoted_text: null,
+      visual_target: { artifactId: 'visual-1', revision: 1, target: 'whole' },
+    }
+    const onAnchorClick = vi.fn()
+    render(<DocView annotations={[visualAnnotation]} node={visualNode} onAnchorClick={onAnchorClick} onRetry={() => {}} onSelect={() => {}} />)
+
+    expect(screen.getByRole('img', { name: 'A 到 B' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '图批注 1' }))
+    expect(onAnchorClick).toHaveBeenCalledWith('visual-ann')
+  })
+
+  it('waits for mouseup before showing the selection toolbar without clearing selection', async () => {
     render(<SelectionHarness />)
     const body = document.querySelector<HTMLElement>('.doc-body')!
     const selected = body.querySelector('p')!.firstChild!
@@ -137,8 +167,10 @@ describe('DocView', () => {
     selection.addRange(range)
 
     fireEvent(document, new Event('selectionchange'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.mouseUp(body)
 
-    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(await screen.findByRole('menu')).toBeInTheDocument()
     expect(body).toHaveFocus()
     fireEvent.mouseDown(screen.getByRole('menuitem', { name: '笔记' }))
     expect(window.getSelection()?.toString()).toBe('第一段')

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildApp } from '../app'
 import { createDeps } from '../deps'
 import { openMemoryDb } from '../db/connection'
+import { DEFAULT_PROVIDER_MODEL } from '../repo/settings-repo'
 import { fixedClock } from '../util/clock'
 
 describe('settings routes', () => {
@@ -10,7 +11,7 @@ describe('settings routes', () => {
     const app = buildApp(deps)
     const defaults = await app.inject({ method: 'GET', url: '/api/settings' })
     expect(defaults.statusCode).toBe(200)
-    expect(defaults.json()).toEqual({ baseUrl: null, hasApiKey: false, model: 'gpt-5-codex', projectRoot: null, provider: 'codex' })
+    expect(defaults.json()).toEqual({ baseUrl: null, hasApiKey: false, model: DEFAULT_PROVIDER_MODEL, projectRoot: null, provider: 'codex' })
 
     const updated = await app.inject({
       method: 'PUT', payload: { apiKey: 'secret', baseUrl: 'https://example.test', model: 'gpt-x', provider: 'custom' },

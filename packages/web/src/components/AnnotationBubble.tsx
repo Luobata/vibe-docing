@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
 import type { PlainSelection } from '../doc/selection'
 import { usePastedImages } from '../flow/use-pasted-images'
+import { generationTaskRegistry, useGenerationTasks } from '../state/workbench-store'
 import { ImageThumbs } from './ImageThumbs'
 import { ImageDiscardConfirm } from './ChatBox'
 
@@ -16,12 +17,14 @@ export function AnnotationBubble({
   onDismiss,
   onForkExpand,
   selection,
+  taskKey = 'fork-expand:unknown:whole:whole',
 }: {
   initialFocus?: 'note' | 'expand'
   onCreateNote(note: string): void | Promise<void>
   onDismiss(): void
   onForkExpand(question: string): void | Promise<void>
   selection: PlainSelection
+  taskKey?: string
 }) {
   const [note, setNote] = useState('')
   const [question, setQuestion] = useState('')
@@ -32,6 +35,10 @@ export function AnnotationBubble({
   const forkRef = useRef<HTMLTextAreaElement>(null)
   const noteImgs = usePastedImages()
   const forkImgs = usePastedImages()
+  const generationTask = useGenerationTasks((snapshot) => snapshot.byKey[taskKey])
+  const forkBusy = Boolean(
+    generationTask && generationTaskRegistry.isTaskLive(generationTask),
+  )
 
   async function commit(kind: 'fork' | 'note'): Promise<void> {
     const value = kind === 'note' ? note.trim() : question.trim()
@@ -60,7 +67,7 @@ export function AnnotationBubble({
     void commit('note')
   }
   function submitFork(): void {
-    if (!question.trim()) return
+    if (!question.trim() || forkBusy) return
     if (forkImgs.images.length > 0) { setPending('fork'); return }
     void commit('fork')
   }
@@ -120,7 +127,10 @@ export function AnnotationBubble({
       {submitError && <p className="inline-error image-submit-error" role="alert">{submitError}</p>}
       <div className="bubble-actions">
         <button
-          disabled={submitting || !question.trim()}
+          aria-describedby={forkBusy ? 'annotation-expand-busy-reason' : undefined}
+          data-gen-status={forkBusy ? 'streaming' : undefined}
+          data-task-key={taskKey}
+          disabled={submitting || forkBusy || !question.trim()}
           onClick={submitFork}
           type="button"
         >
@@ -128,6 +138,17 @@ export function AnnotationBubble({
         </button>
         <button onClick={onDismiss} type="button">取消</button>
       </div>
+      {forkBusy && (
+        <span
+          className="annotation-expand-reason"
+          data-gen-status="streaming"
+          data-task-key={taskKey}
+          id="annotation-expand-busy-reason"
+          role="status"
+        >
+          该选区的展开正在进行中
+        </span>
+      )}
     </div>
   )
 }

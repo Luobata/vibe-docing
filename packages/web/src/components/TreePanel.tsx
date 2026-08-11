@@ -1,7 +1,8 @@
 import type { NodeRow } from '@vibe/shared'
 import { useEffect, useRef, useState } from 'react'
 import { useApi } from '../api/context'
-import { useWorkbench } from '../state/workbench-store'
+import { useGenerationTasks, useWorkbench } from '../state/workbench-store'
+import { ConfirmDialog } from './ConfirmDialog'
 
 export function nodeTitle(node: NodeRow | undefined): string {
   if (!node) return '未命名'
@@ -25,10 +26,27 @@ function countSubtree(nodesById: Record<string, NodeRow>, nodeId: string): numbe
   return total
 }
 
-function TreeBranch({ nodeId, onDelete, onNodeSelect }: { nodeId: string; onDelete(id: string): void; onNodeSelect?(): void }) {
+interface PendingNodeDelete {
+  id: string
+  isRoot: boolean
+  message: string
+  trigger: HTMLButtonElement
+}
+
+function TreeBranch({ collapsedIds, depth, nodeId, onDelete, onNodeSelect, onToggle }: {
+  collapsedIds: ReadonlySet<string>
+  depth: number
+  nodeId: string
+  onDelete(id: string, trigger: HTMLButtonElement): void
+  onNodeSelect?(): void
+  onToggle(id: string): void
+}) {
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
   const setMain = useWorkbench((state) => state.setMain)
+  const unreadNodeIds = useWorkbench((state) => state.unreadNodeIds)
+  const tasksByKey = useGenerationTasks((snapshot) => snapshot.byKey)
+  const taskKeyByTarget = useGenerationTasks((snapshot) => snapshot.byTarget)
   const node = nodesById[nodeId]
   if (!node || node.is_deleted === 1) return null
   const children = Object.values(nodesById)
@@ -37,32 +55,60 @@ function TreeBranch({ nodeId, onDelete, onNodeSelect }: { nodeId: string; onDele
       (left, right) =>
         left.sort_order - right.sort_order || left.id.localeCompare(right.id),
     )
+  const expanded = children.length > 0 && !collapsedIds.has(node.id)
+  const taskKey = taskKeyByTarget[node.id]
+  const task = taskKey ? tasksByKey[taskKey] : undefined
+  const generating = task?.status === 'streaming' || node.status === 'streaming'
+  const unread = unreadNodeIds.includes(node.id)
 
   return (
-    <li>
-      <div className="tree-node-row">
+    <li className="tree-branch" data-depth={depth}>
+      <div className="tree-node-row" data-generating={generating || undefined} data-unread={unread || undefined}>
         <button
+          aria-label={children.length ? `${expanded ? '收起' : '展开'}“${nodeTitle(node)}”` : undefined}
+          aria-expanded={children.length ? expanded : undefined}
+          className="tree-node-toggle"
+          disabled={children.length === 0}
+          onClick={() => onToggle(node.id)}
+          tabIndex={children.length ? 0 : -1}
+          type="button"
+        >
+          <span aria-hidden="true">{children.length ? '›' : '•'}</span>
+        </button>
+        <button
+          aria-label={nodeTitle(node)}
           aria-current={mainNodeId === node.id ? 'page' : undefined}
+          className="tree-node-main"
           onClick={() => { setMain(node.id); onNodeSelect?.() }}
           title={nodeTitle(node)}
           type="button"
         >
-          <span aria-hidden="true">{children.length ? '⌄' : '·'}</span>{' '}
-          {nodeTitle(node)}
+          <span aria-hidden="true" className="tree-node-kind">{node.parent_id ? '◇' : '◆'}</span>
+          <span className="tree-node-title">{nodeTitle(node)}</span>
+          {generating && <span aria-label="生成中" className="tree-node-status is-generating"><span aria-hidden="true" /></span>}
+          {!generating && unread && <span aria-label="未读" className="tree-node-status is-unread"><span aria-hidden="true" /></span>}
         </button>
         <button
           aria-label={`删除“${nodeTitle(node)}”`}
           className="tree-node-delete"
-          onClick={() => onDelete(node.id)}
+          onClick={(event) => onDelete(node.id, event.currentTarget)}
           type="button"
         >
           ×
         </button>
       </div>
-      {children.length > 0 && (
+      {expanded && (
         <ul>
           {children.map((child) => (
-            <TreeBranch key={child.id} nodeId={child.id} onDelete={onDelete} onNodeSelect={onNodeSelect} />
+            <TreeBranch
+              collapsedIds={collapsedIds}
+              depth={depth + 1}
+              key={child.id}
+              nodeId={child.id}
+              onDelete={onDelete}
+              onNodeSelect={onNodeSelect}
+              onToggle={onToggle}
+            />
           ))}
         </ul>
       )}
@@ -78,6 +124,10 @@ export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
   const [undoId, setUndoId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [errorPaused, setErrorPaused] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<PendingNodeDelete | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set())
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -89,18 +139,16 @@ export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
     }
   }, [error, errorPaused])
 
-  async function handleDelete(id: string): Promise<void> {
+  function requestDelete(id: string, trigger: HTMLButtonElement): void {
     const node = nodesById[id]
     if (node && !node.parent_id) {
-      if (!window.confirm(`将删除整棵树“${nodeTitle(node)}”，可在回收站/树列表恢复。`)) return
-      setError(null)
-      const treeId = useWorkbench.getState().treeId
-      try {
-        await api.deleteTree(treeId!)
-        useWorkbench.getState().reset()
-      } catch {
-        setError('删除树失败，请稍后重试。')
-      }
+      setDeleteError(null)
+      setPendingDelete({
+        id,
+        isRoot: true,
+        message: `将删除整棵树“${nodeTitle(node)}”，可在回收站/树列表恢复。`,
+        trigger,
+      })
       return
     }
     const count = countSubtree(nodesById, id)
@@ -108,16 +156,40 @@ export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
     const message = count > 1
       ? `将删除“${label}”及其 ${count - 1} 个子节点（共 ${count} 个），可在回收站恢复。`
       : `将删除“${label}”，可在回收站恢复。`
-    if (!window.confirm(message)) return
-    setError(null)
-    setSubtreeDeleted(id, true)
-    setUndoId(id)
+    setDeleteError(null)
+    setPendingDelete({ id, isRoot: false, message, trigger })
+  }
+
+  function toggleNode(id: string): void {
+    setCollapsedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function confirmDelete(): Promise<void> {
+    if (!pendingDelete) return
+    const { id, isRoot } = pendingDelete
+    setDeleteBusy(true)
+    setDeleteError(null)
     try {
+      if (isRoot) {
+        const treeId = useWorkbench.getState().treeId
+        await api.deleteTree(treeId!)
+        setPendingDelete(null)
+        useWorkbench.getState().reset()
+        return
+      }
       await api.deleteNode(id)
+      setSubtreeDeleted(id, true)
+      setUndoId(id)
+      setPendingDelete(null)
     } catch {
-      setSubtreeDeleted(id, false)
-      setUndoId(null)
-      setError('删除失败，请稍后重试。')
+      setDeleteError(isRoot ? '删除树失败，请稍后重试。' : '删除失败，请稍后重试。')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -137,7 +209,7 @@ export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
   return (
     <nav aria-label="文档树">
       <ul className="tree-root">
-        <TreeBranch nodeId={rootNodeId} onDelete={(id) => { void handleDelete(id) }} onNodeSelect={onNodeSelect} />
+        <TreeBranch collapsedIds={collapsedIds} depth={0} nodeId={rootNodeId} onDelete={requestDelete} onNodeSelect={onNodeSelect} onToggle={toggleNode} />
       </ul>
       {undoId && (
         <div className="tree-undo" role="status">
@@ -146,10 +218,32 @@ export function TreePanel({ onNodeSelect }: { onNodeSelect?(): void } = {}) {
         </div>
       )}
       {error && (
-        <div className="inline-error dismissible-notice" onMouseEnter={() => setErrorPaused(true)} onMouseLeave={() => setErrorPaused(false)} role="alert">
+        <div
+          className="inline-error dismissible-notice"
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setErrorPaused(false)
+          }}
+          onFocus={() => setErrorPaused(true)}
+          onMouseEnter={() => setErrorPaused(true)}
+          onMouseLeave={() => setErrorPaused(false)}
+          role="alert"
+        >
           <span>{error}</span>
           <button aria-label="关闭错误提示" onClick={() => setError(null)} type="button">×</button>
         </div>
+      )}
+      {pendingDelete && (
+        <ConfirmDialog
+          busy={deleteBusy}
+          error={deleteError}
+          message={pendingDelete.message}
+          onCancel={() => {
+            setDeleteError(null)
+            setPendingDelete(null)
+          }}
+          onConfirm={confirmDelete}
+          returnFocusTo={pendingDelete.trigger}
+        />
       )}
     </nav>
   )

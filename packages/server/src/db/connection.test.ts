@@ -28,6 +28,7 @@ describe('db schema', () => {
       'node_versions',
       'merges',
       'settings',
+      'document_shares',
     ]) {
       expect(names).toContain(table)
     }

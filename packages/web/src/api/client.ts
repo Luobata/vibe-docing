@@ -2,12 +2,17 @@ import type {
   AnnotationKind,
   AnnotationRow,
   ContextSegmentRow,
+  DocumentShareResponse,
   MergeRow,
   NodeRow,
   NodeVersionRow,
   RouteTarget,
   TreeRow,
+  VisualAnnotationTarget,
+  VisualArtifact,
+  VisualStreamEvent,
 } from '@vibe/shared'
+import { visualRuntimeStore } from '../visual/visual-stream-state'
 import type { RouteConvergence, SettingsPatch, SettingsView } from './types'
 
 export class ApiError extends Error {
@@ -24,6 +29,7 @@ export interface AnswerStreamHandlers {
   onChunk(text: string): void
   onDone(node: NodeRow): void
   onError(message: string): void
+  onVisual?(event: VisualStreamEvent): void
 }
 
 function isAbortError(error: unknown, signal?: AbortSignal): boolean {
@@ -77,6 +83,15 @@ export function createApi(options?: {
         handlers.onError(
           typeof event.message === 'string' ? event.message : 'answer failed',
         )
+      } else if (
+        ['visual_placeholder', 'visual_ready', 'visual_error'].includes(String(event.type))
+        && typeof event.placeholderId === 'string'
+        && typeof event.artifactId === 'string'
+        && Number.isInteger(event.revision)
+      ) {
+        const visualEvent = event as unknown as VisualStreamEvent
+        visualRuntimeStore.dispatch(visualEvent)
+        handlers.onVisual?.(visualEvent)
       }
     } catch {
       handlers.onError('invalid answer stream event')
@@ -91,6 +106,7 @@ export function createApi(options?: {
         anchorTo: number | null
         quotedText: string | null
         note: string
+        visualTarget?: VisualAnnotationTarget
       },
     ) =>
       json<{ annotation: AnnotationRow }>(`/nodes/${nodeId}/annotation`, {
@@ -127,10 +143,11 @@ export function createApi(options?: {
         seedText: string
         treeId: string
       },
+      signal?: AbortSignal,
     ) =>
       json<{ annotation: AnnotationRow; childNode: NodeRow }>(
         `/nodes/${nodeId}/fork`,
-        { body: JSON.stringify(body), method: 'POST' },
+        { body: JSON.stringify(body), method: 'POST', signal },
       ),
     getNode: (nodeId: string) =>
       json<{
@@ -140,16 +157,26 @@ export function createApi(options?: {
       }>(`/nodes/${nodeId}`),
     getNodePath: (nodeId: string) =>
       json<{ path: NodeRow[] }>(`/nodes/${nodeId}/path`),
-    getSettings: () => json<SettingsView>('/settings'),
-    updateSettings: (patch: SettingsPatch) =>
+    getVisualArtifact: (artifactId: string, revision: number) =>
+      json<{ artifact: VisualArtifact }>(`/visual-artifacts/${encodeURIComponent(artifactId)}/${revision}`),
+    getSettings: (signal?: AbortSignal) =>
+      json<SettingsView>('/settings', { signal }),
+    updateSettings: (patch: SettingsPatch, signal?: AbortSignal) =>
       json<SettingsView>('/settings', {
         body: JSON.stringify(patch),
         method: 'PUT',
+        signal,
       }),
     getTrash: (treeId: string) =>
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
     getTree: (treeId: string) =>
       json<{ nodes: NodeRow[]; tree: TreeRow }>(`/trees/${treeId}`),
+    getShare: (treeId: string) =>
+      json<DocumentShareResponse>(`/trees/${treeId}/share`),
+    createShare: (treeId: string) =>
+      json<DocumentShareResponse>(`/trees/${treeId}/share`, { method: 'POST' }),
+    revokeShare: (treeId: string) =>
+      json<{ ok: true }>(`/trees/${treeId}/share`, { method: 'DELETE' }),
     listDeletedTrees: () => json<{ trees: TreeRow[] }>('/trees/deleted'),
     listTrees: () => json<{ trees: TreeRow[] }>('/trees'),
     renameTree: (treeId: string, title: string) =>

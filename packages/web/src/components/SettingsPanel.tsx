@@ -1,9 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApi } from '../api/context'
 import type { SettingsPatch, SettingsView } from '../api/types'
 
+const SETTINGS_REQUEST_TIMEOUT_MS = 10_000
+
+class SettingsRequestTimeoutError extends Error {}
+
+async function withTimeout<T>(
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort()
+      reject(new SettingsRequestTimeoutError())
+    }, SETTINGS_REQUEST_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([request(controller.signal), timeout])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
+
 export function SettingsPanel() {
   const api = useApi()
+  const savingRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
@@ -19,7 +42,7 @@ export function SettingsPanel() {
     let active = true
     setLoading(true)
     setError(null)
-    void api.getSettings()
+    void withTimeout((signal) => api.getSettings(signal))
       .then((settings) => {
         if (!active) return
         setHasApiKey(settings.hasApiKey)
@@ -28,12 +51,19 @@ export function SettingsPanel() {
         setModel(settings.model)
         setBaseUrl(settings.baseUrl ?? '')
       })
-      .catch(() => { if (active) setError('设置加载失败。') })
+      .catch((cause: unknown) => {
+        if (!active) return
+        setError(cause instanceof SettingsRequestTimeoutError
+          ? '设置加载超时，请检查服务状态后重试。'
+          : '设置加载失败。')
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [api])
 
   async function save(): Promise<void> {
+    if (savingRef.current) return
+    savingRef.current = true
     setBusy(true)
     setStatus(null)
     setError(null)
@@ -45,20 +75,29 @@ export function SettingsPanel() {
     }
     if (apiKey) patch.apiKey = apiKey
     try {
-      const settings: SettingsView = await api.updateSettings(patch)
+      const settings: SettingsView = await withTimeout(
+        (signal) => api.updateSettings(patch, signal),
+      )
       setHasApiKey(settings.hasApiKey)
+      setProjectRoot(settings.projectRoot ?? '')
+      setProvider(settings.provider)
+      setModel(settings.model)
+      setBaseUrl(settings.baseUrl ?? '')
       setApiKey('')
-      setStatus('已保存')
-    } catch {
-      setError('保存失败，请重试。')
+      setStatus('设置已保存。')
+    } catch (cause: unknown) {
+      setError(cause instanceof SettingsRequestTimeoutError
+        ? '保存超时，设置未确认写入，请检查服务状态后重试。'
+        : '保存失败，请重试。')
     } finally {
+      savingRef.current = false
       setBusy(false)
     }
   }
 
   if (loading) return <p aria-live="polite">正在加载设置…</p>
   return (
-    <div className="version-panel">
+    <div className="settings-panel version-panel">
       <label>
         <span>项目根目录</span>
         <input
@@ -92,9 +131,18 @@ export function SettingsPanel() {
           value={apiKey}
         />
       </label>
-      <button className="primary-button" disabled={busy} onClick={() => { void save() }} type="button">保存</button>
-      {status && <p role="status">{status}</p>}
-      {error && <p role="alert">{error}</p>}
+      <button
+        aria-busy={busy}
+        className="primary-button"
+        disabled={busy}
+        onClick={() => { void save() }}
+        type="button"
+      >
+        {busy ? '保存中…' : '保存'}
+      </button>
+      {busy && <p className="settings-save-feedback" role="status">正在保存设置…</p>}
+      {status && <p className="settings-save-feedback is-success" role="status">{status}</p>}
+      {error && <p className="inline-error settings-save-feedback" role="alert">{error}</p>}
     </div>
   )
 }

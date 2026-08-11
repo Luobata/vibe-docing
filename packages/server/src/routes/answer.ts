@@ -47,6 +47,7 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
       const node = await app.deps.answer.generate(
         { nodeId: existing.id, provider, signal: controller.signal, userInput },
         (text) => send({ type: 'chunk', text }),
+        send,
       )
       send({ type: 'done', node })
     } catch (error) {

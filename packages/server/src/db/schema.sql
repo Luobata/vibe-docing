@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS annotations (
   quoted_text TEXT,
   note TEXT,
   child_node_id TEXT REFERENCES nodes(id),
+  visual_target_json TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -77,3 +78,35 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS visual_artifacts (
+  artifact_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  alt_text TEXT NOT NULL,
+  renderer TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  scene_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (artifact_id, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visual_artifacts_latest
+  ON visual_artifacts(artifact_id, revision DESC);
+
+CREATE TABLE IF NOT EXISTS document_shares (
+  id TEXT PRIMARY KEY,
+  tree_id TEXT NOT NULL REFERENCES trees(id),
+  token_hash TEXT NOT NULL,
+  token_hint TEXT NOT NULL,
+  is_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_shares_tree ON document_shares(tree_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_tree
+  ON document_shares(tree_id) WHERE is_enabled = 1;

@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -37,7 +37,6 @@ describe('TreeLauncher', () => {
   })
 
   it('deletes a tree from the list after confirming', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const api = {
       deleteTree: vi.fn(async () => ({ ok: true })),
       listTrees: vi.fn(async () => ({ trees: [{ id: 't1', root_node_id: 'root', title: '要删的树' }] })),
@@ -45,44 +44,29 @@ describe('TreeLauncher', () => {
     render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
     await screen.findByRole('button', { name: '要删的树' })
     fireEvent.click(screen.getByRole('button', { name: '删除“要删的树”' }))
-    expect(confirmSpy).toHaveBeenCalled()
+    const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
+    expect(dialog).toHaveTextContent('将删除树“要删的树”，可在回收站恢复。')
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(api.deleteTree).toHaveBeenCalledWith('t1'))
     await waitFor(() => expect(screen.queryByRole('button', { name: '要删的树' })).toBeNull())
-    confirmSpy.mockRestore()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
-  it('moves a restored tree to the top of the active list', async () => {
-    const deletedTree = {
-      created_at: '2026-08-05T00:00:00.000Z',
-      id: 't-deleted',
-      is_deleted: 1,
-      root_node_id: 'root-deleted',
-      title: '可恢复',
-      updated_at: '2026-08-05T00:00:00.000Z',
-    } as const
+  it('keeps the dialog open with an inline error when deleting a tree fails', async () => {
     const api = {
-      listDeletedTrees: vi.fn(async () => ({ trees: [deletedTree] })),
-      listTrees: vi.fn(async () => ({
-        trees: [{ ...deletedTree, id: 't-active', is_deleted: 0, title: '原有树' }],
-      })),
-      restoreTree: vi.fn(async () => ({
-        tree: {
-          ...deletedTree,
-          is_deleted: 0 as const,
-          updated_at: '2026-08-09T00:00:00.000Z',
-        },
-      })),
+      deleteTree: vi.fn(async () => { throw new Error('network') }),
+      listTrees: vi.fn(async () => ({ trees: [{ id: 't1', root_node_id: 'root', title: '删不掉的树' }] })),
     }
     render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    await screen.findByRole('button', { name: '删不掉的树' })
 
-    fireEvent.click(await screen.findByRole('button', { name: '恢复“可恢复”' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除“删不掉的树”' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(api.restoreTree).toHaveBeenCalledWith('t-deleted'))
-    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      expect.stringContaining('可恢复'),
-      expect.stringContaining('原有树'),
-    ])
-    expect(screen.getByText('暂无已删除的树。')).toBeInTheDocument()
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('删除树失败，请稍后重试。')
+    expect(screen.getByRole('button', { name: '删不掉的树' })).toBeInTheDocument()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   })
 
   it('renames a tree inline', async () => {

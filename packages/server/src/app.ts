@@ -16,6 +16,8 @@ import { registerMigrateRoutes } from './routes/migrate'
 import { registerMergeRoutes } from './routes/merge'
 import { registerAnnotationRoutes } from './routes/annotation'
 import { registerSettingsRoutes } from './routes/settings'
+import { registerShareRoutes } from './routes/share'
+import { registerVisualArtifactRoutes } from './routes/visual-artifacts'
 
 export type DecoratedApp = AppInstance & { deps: AppDeps }
 
@@ -36,6 +38,8 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerMergeRoutes(app)
   registerAnnotationRoutes(app)
   registerSettingsRoutes(app)
+  registerShareRoutes(app)
+  registerVisualArtifactRoutes(app)
 
   return app
 }

@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -40,6 +40,14 @@ describe('tree and breadcrumb navigation', () => {
     expect(useWorkbench.getState().mainNodeId).toBe('a')
   })
 
+  it('collapses and re-expands a branch with a dedicated disclosure control', () => {
+    render(<TreePanel />)
+    fireEvent.click(screen.getByRole('button', { name: '收起“根”' }))
+    expect(screen.queryByRole('button', { name: '缓存问题' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '展开“根”' }))
+    expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
+  })
+
   it('renders a clickable breadcrumb and drives back/forward controls', () => {
     useWorkbench.getState().setMain('a')
     render(<Breadcrumb />)
@@ -55,9 +63,7 @@ describe('tree and breadcrumb navigation', () => {
 })
 
 describe('tree node deletion', () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
   beforeEach(() => {
-    confirmSpy.mockReset()
     useWorkbench.getState().reset()
     useWorkbench.getState().loadTree({
       nodes: [node('root', null, null), node('a', 'root', '缓存问题'), node('b', 'a', '子问题')],
@@ -75,7 +81,6 @@ describe('tree node deletion', () => {
   })
 
   it('deletes a non-root subtree after confirming the cascade count, then offers undo', async () => {
-    confirmSpy.mockReturnValue(true)
     const restoreNode = vi.fn(async () => ({ ok: true }))
     const api = {
       deleteNode: vi.fn(async () => ({ ok: true })),
@@ -84,9 +89,10 @@ describe('tree node deletion', () => {
     }
     render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
 
-    // delete node 'a' (which has 1 child 'b') → confirm mentions 2 nodes
     fireEvent.click(screen.getByRole('button', { name: '删除“缓存问题”' }))
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('2'))
+    const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
+    expect(dialog).toHaveTextContent('共 2 个')
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(api.deleteNode).toHaveBeenCalledWith('a'))
     // subtree gone from the tree view
     await waitFor(() => expect(screen.queryByRole('button', { name: '缓存问题' })).toBeNull())
@@ -97,13 +103,15 @@ describe('tree node deletion', () => {
     expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
   })
 
-  it('does not delete when the confirm is cancelled', () => {
-    confirmSpy.mockReturnValue(false)
+  it('does not delete when the dialog is cancelled and returns focus to the trigger', async () => {
     const api = { deleteNode: vi.fn(), getNode: vi.fn(() => new Promise(() => {})) }
     render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
-    fireEvent.click(screen.getByRole('button', { name: '删除“缓存问题”' }))
+    const trigger = screen.getByRole('button', { name: '删除“缓存问题”' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(api.deleteNode).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
   })
 })
 
@@ -122,11 +130,13 @@ describe('root node deletion', () => {
   })
 
   it('root delete button triggers deleteTree on the whole tree', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const api = { deleteTree: vi.fn().mockResolvedValue({ ok: true }) }
     render(<ApiProvider api={api as never}><TreePanel /></ApiProvider>)
 
     fireEvent.click(screen.getByLabelText('删除“根”'))
+    const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
+    expect(dialog).toHaveTextContent('将删除整棵树“根”')
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(api.deleteTree).toHaveBeenCalledWith('t'))
   })

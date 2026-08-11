@@ -1,12 +1,20 @@
 export function AssistantStatus({
   onStop,
   phase,
+  taskKey = 'ask:unknown',
 }: {
-  onStop(): void
-  phase: 'cancelling' | 'replying' | 'thinking'
+  onStop(key: string): void
+  phase: 'replying' | 'stopping' | 'thinking'
+  taskKey?: string
 }) {
   return (
-    <div className="assistant-status" data-testid="assistant-status" role="status">
+    <div
+      className="assistant-status"
+      data-gen-status="streaming"
+      data-task-key={taskKey}
+      data-testid="assistant-status"
+      role="status"
+    >
       <span>
         {phase === 'thinking'
           ? 'AI 正在思考…'
@@ -14,8 +22,14 @@ export function AssistantStatus({
             ? 'AI 正在回复…'
             : '正在停止生成…'}
       </span>
-      <button disabled={phase === 'cancelling'} onClick={onStop} type="button">
-        {phase === 'cancelling' ? '停止中' : '停止'}
+      <button
+        data-gen-status="streaming"
+        data-task-key={taskKey}
+        disabled={phase === 'stopping'}
+        onClick={() => onStop(taskKey)}
+        type="button"
+      >
+        {phase === 'stopping' ? '停止中' : '停止'}
       </button>
     </div>
   )

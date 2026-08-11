@@ -38,4 +38,24 @@ describe('annotation route', () => {
     expect(response.statusCode).toBe(400)
     await app.close()
   })
+
+  it('creates and reads a whole-visual annotation', async () => {
+    const { app, deps, rootNode } = setup()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/nodes/${rootNode.id}/annotation`,
+      payload: {
+        anchorFrom: null,
+        anchorTo: null,
+        quotedText: null,
+        note: '检查整图',
+        visualTarget: { artifactId: 'visual-1', revision: 2, target: 'whole' },
+      },
+    })
+    expect(response.statusCode).toBe(200)
+    const annotation = response.json().annotation
+    expect(annotation.kind).toBe('whole')
+    expect(deps.annotations.get(annotation.id)?.visual_target).toEqual({ artifactId: 'visual-1', revision: 2, target: 'whole' })
+    await app.close()
+  })
 })

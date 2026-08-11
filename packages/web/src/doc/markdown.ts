@@ -5,6 +5,9 @@ import type { AnnotationRange } from './highlight'
 // through (blocks the obvious XSS vector). linkify off to avoid surprise links.
 const md = new MarkdownIt({ breaks: true, html: false, linkify: false })
 
+md.renderer.rules.table_open = () => '<div class="doc-table-scroll"><table>\n'
+md.renderer.rules.table_close = () => '</table></div>\n'
+
 // A GitHub-flavored table row: starts and ends with a pipe, tolerating leading
 // blockquote markers (`> | … |`). The delimiter row `| --- | --- |` matches too.
 const TABLE_ROW = /^\s*>?\s*\|.*\|\s*$/

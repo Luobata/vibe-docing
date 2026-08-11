@@ -11,6 +11,7 @@ import { createNodeRepo } from '../repo/node-repo'
 import { createSegmentRepo } from '../repo/segment-repo'
 import { createTreeRepo } from '../repo/tree-repo'
 import { createVersionRepo } from '../repo/version-repo'
+import { createVisualArtifactRepo } from '../repo/visual-artifact-repo'
 import { fixedClock } from '../util/clock'
 import { createAnswerService } from './answer-service'
 
@@ -21,11 +22,13 @@ function setup(settings: { getProjectRoot(): string | null } = { getProjectRoot:
   const nodes = createNodeRepo(db, clock)
   const segments = createSegmentRepo(db)
   const versions = createVersionRepo(db, clock)
+  const visualArtifacts = createVisualArtifactRepo(db, clock)
   return {
     nodes,
     rootNode,
-    service: createAnswerService({ nodes, segments, settings, versions }),
+    service: createAnswerService({ nodes, segments, settings, versions, visualArtifacts }),
     versions,
+    visualArtifacts,
   }
 }
 
@@ -155,6 +158,39 @@ describe('AnswerService', () => {
     expect(node.status).toBe('complete')
     expect(prosemirrorToPlainText(node.ai_response)).toBe('单轮回复')
     expect(chunks).toEqual(['单轮', '回复'])
+  })
+
+  it('accepts a proactive visual tool call, streams lifecycle events, and persists a reloadable reference', async () => {
+    const context = setup()
+    const args = {
+      kind: 'architecture', title: '分层架构', altText: '模型、存储、渲染三层架构', renderer: 'canvas',
+      nodes: [{ id: 'model', label: '模型' }, { id: 'store', label: '存储' }, { id: 'render', label: '渲染' }],
+      edges: [{ id: 'e1', source: 'model', target: 'store' }, { id: 'e2', source: 'store', target: 'render' }],
+      groups: [],
+    }
+    const provider = createMockProvider({
+      toolScript: [
+        [{ type: 'tool_call', id: 'visual-call', name: 'create_visual', arguments: JSON.stringify(args) }],
+        [{ type: 'text', text: '正文说明' }],
+      ],
+    })
+    const events: import('@vibe/shared').VisualStreamEvent[] = []
+    const node = await context.service.generate(
+      { nodeId: context.rootNode.id, provider, userInput: '解释整体架构' },
+      () => {},
+      (event) => events.push(event),
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['visual_placeholder', 'visual_ready'])
+    const ready = events[1]
+    expect(ready.type).toBe('visual_ready')
+    if (ready.type !== 'visual_ready') throw new Error('visual_ready event expected')
+    expect(context.visualArtifacts.get(ready.artifactId, ready.revision)).toEqual(ready.artifact)
+    expect(JSON.parse(node.ai_response!).content).toContainEqual({
+      type: 'visual_ref',
+      attrs: { artifactId: ready.artifactId, revision: ready.revision, altText: args.altText },
+    })
+    expect(prosemirrorToPlainText(node.ai_response)).toBe(`正文说明\n${args.altText}\n`)
   })
 
   it('stops after max tool rounds and finalizes via a single stream fallback', async () => {

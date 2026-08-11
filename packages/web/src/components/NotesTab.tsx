@@ -1,5 +1,5 @@
 import type { AnnotationRow } from '@vibe/shared'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { usePastedImages } from '../flow/use-pasted-images'
 import { useWorkbench } from '../state/workbench-store'
 import { ImageThumbs } from './ImageThumbs'
@@ -23,13 +23,21 @@ export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
   const { images, removeImage, clear, handlePaste, handleDrop } = usePastedImages(mainNodeId)
   const notes = annotations.filter((a) => a.child_node_id === null && a.note)
 
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${Math.max(56, Math.min(input.scrollHeight, 160))}px`
+  }, [value])
+
   // One-shot anchor highlight: flash + scroll the matching note, then clear the
   // store flag so re-anchoring the same note later re-triggers (like focusedAnnotationId).
   useEffect(() => {
     if (!anchoredNoteId) return
     setFlashId(anchoredNoteId)
     const el = listRef.current?.querySelector(`[data-note-id="${anchoredNoteId}"]`)
-    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    el?.scrollIntoView?.({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
     useWorkbench.getState().setAnchoredNoteId(null)
   }, [anchoredNoteId])
 
@@ -103,6 +111,7 @@ export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
               >
                 <button onClick={() => onJump(n.id)} type="button">
                   {n.quoted_text && <blockquote>{n.quoted_text}</blockquote>}
+                  {n.visual_target && <span className="note-context">可视化 · {n.visual_target.target === 'whole' ? '整图' : '图中元素'}</span>}
                   <span className="note-body">{n.note}</span>
                 </button>
               </li>

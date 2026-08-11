@@ -12,11 +12,13 @@
     "@vibe/shared": "workspace:*",
     "better-sqlite3": "^11.0.0",
     "fastify": "^5.0.0",
+    "markdown-it": "^14.1.0",
     "nanoid": "^5.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.0.0",
     "tsx": "^4.0.0"
   }

@@ -107,6 +107,7 @@ describe('api client', () => {
     const pieces = [
       'data: {"type":"chunk","text":"A"}\n\nda',
       'ta: {"type":"chunk","text":"B"}\n\ndata: {"type":"done","node":{"id":"n1"}}\n\n',
+      'data: {"type":"visual_placeholder","placeholderId":"p","artifactId":"a","revision":2}\n\n',
       'data: {"type":"error","message":"late warning"}\n\n',
     ]
     const body = new ReadableStream({
@@ -124,6 +125,7 @@ describe('api client', () => {
     const chunks: string[] = []
     const errors: string[] = []
     let doneNodeId: string | null = null
+    const visualEvents: string[] = []
 
     await createApi({ fetchImpl }).streamAnswer('n1', 'q', {
       onChunk: (text) => chunks.push(text),
@@ -131,11 +133,13 @@ describe('api client', () => {
         doneNodeId = node.id
       },
       onError: (message) => errors.push(message),
+      onVisual: (event) => visualEvents.push(event.type),
     })
 
     expect(chunks).toEqual(['A', 'B'])
     expect(doneNodeId).toBe('n1')
     expect(errors).toEqual(['late warning'])
+    expect(visualEvents).toEqual(['visual_placeholder'])
   })
 
   it('passes the abort signal to fetch and stops dispatching stream chunks', async () => {
@@ -234,10 +238,15 @@ describe('api client', () => {
       }),
     })
     const api = createApi({ fetchImpl })
-    await api.updateSettings({ projectRoot: '/x' })
+    const controller = new AbortController()
+    await api.updateSettings({ projectRoot: '/x' }, controller.signal)
     expect(fetchImpl).toHaveBeenCalledWith(
       '/api/settings',
-      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ projectRoot: '/x' }) }),
+      expect.objectContaining({
+        body: JSON.stringify({ projectRoot: '/x' }),
+        method: 'PUT',
+        signal: controller.signal,
+      }),
     )
   })
 

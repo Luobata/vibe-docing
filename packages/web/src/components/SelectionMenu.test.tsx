@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { generationTaskRegistry } from '../state/workbench-store'
 import { SelectionMenu } from './SelectionMenu'
 
 describe('SelectionMenu', () => {
+  beforeEach(() => generationTaskRegistry.reset())
   it('renders two actions and fires onPick', () => {
     const onPick = vi.fn()
     render(<SelectionMenu onClose={() => {}} onPick={onPick} x={10} y={10} />)
@@ -48,13 +50,51 @@ describe('SelectionMenu', () => {
     text.remove()
   })
 
-  it('disables expand with an explanation while generation is busy', () => {
+  it('keeps expand available while another generation is active', () => {
     const status = document.createElement('div')
     status.dataset.testid = 'assistant-status'
     document.body.append(status)
     render(<SelectionMenu onClose={() => {}} onPick={() => {}} x={10} y={10} />)
-    expect(screen.getByRole('menuitem', { name: '就此展开' })).toBeDisabled()
-    expect(screen.getByText('生成进行中，暂不能展开')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '就此展开' })).toBeEnabled()
+    expect(screen.queryByText('生成进行中，暂不能展开')).not.toBeInTheDocument()
     status.remove()
+  })
+
+  it('disables only the matching selection key and keeps a different anchor available', () => {
+    const matchingKey = 'fork-expand:root:0:5'
+    const otherAnchorKey = 'fork-expand:root:6:12'
+    generationTaskRegistry.start({
+      key: matchingKey,
+      kind: 'fork-expand',
+      ownerMainNodeId: 'root',
+    })
+    const { rerender } = render(
+      <SelectionMenu
+        onClose={() => {}}
+        onPick={() => {}}
+        taskKey={matchingKey}
+        x={10}
+        y={10}
+      />,
+    )
+
+    const expand = screen.getByRole('menuitem', { name: '就此展开' })
+    expect(expand).toBeDisabled()
+    expect(expand).toHaveAttribute('aria-describedby', 'selection-expand-busy-reason')
+    expect(screen.getByText('该选区的展开正在进行中')).toHaveAttribute('data-task-key', matchingKey)
+
+    rerender(
+      <SelectionMenu
+        onClose={() => {}}
+        onPick={() => {}}
+        taskKey={otherAnchorKey}
+        x={10}
+        y={10}
+      />,
+    )
+
+    expect(screen.getByRole('menuitem', { name: '就此展开' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: '就此展开' })).toHaveAttribute('data-task-key', otherAnchorKey)
+    expect(screen.queryByText('该选区的展开正在进行中')).not.toBeInTheDocument()
   })
 })

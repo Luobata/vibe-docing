@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { openMemoryDb } from '../db/connection'
-import { createSettingsRepo } from './settings-repo'
+import { createSettingsRepo, DEFAULT_PROVIDER_MODEL } from './settings-repo'
 
 describe('SettingsRepo', () => {
   it('returns the default Codex configuration', () => {
@@ -8,9 +8,34 @@ describe('SettingsRepo', () => {
     expect(settings.getProviderConfig()).toEqual({
       apiKey: null,
       baseUrl: null,
-      model: 'gpt-5-codex',
+      model: DEFAULT_PROVIDER_MODEL,
       provider: 'codex',
     })
+  })
+
+  it.each([
+    'experimental_0717',
+    'model_api/experimental_0717',
+    'experimanetental_0717',
+    'model_api/experimanetental_0717',
+  ])('migrates the legacy model %s without touching other settings', (legacyModel) => {
+    const db = openMemoryDb()
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('provider.model', legacyModel)
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('provider.name', 'codex')
+
+    const settings = createSettingsRepo(db)
+
+    expect(settings.get('provider.model')).toBe(DEFAULT_PROVIDER_MODEL)
+    expect(settings.get('provider.name')).toBe('codex')
+  })
+
+  it('preserves a user-selected non-legacy model', () => {
+    const db = openMemoryDb()
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('provider.model', 'custom-model')
+
+    const settings = createSettingsRepo(db)
+
+    expect(settings.getProviderConfig().model).toBe('custom-model')
   })
 
   it('upserts settings values', () => {

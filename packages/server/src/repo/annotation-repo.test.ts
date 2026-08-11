@@ -59,4 +59,25 @@ describe('AnnotationRepo', () => {
     expect(annotation.quoted_text).toBeNull()
     expect(annotation.note).toBeNull()
   })
+
+  it('round-trips whole-block and reserved visual-element targets', () => {
+    const db = openMemoryDb()
+    openDatabases.push(db)
+    const clock = fixedClock('2026-08-05T00:00:00.000Z')
+    const { rootNode } = createTreeRepo(db, clock).create('t')
+    const annotations = createAnnotationRepo(db, clock)
+    const whole = annotations.create({
+      nodeId: rootNode.id,
+      kind: 'whole',
+      visualTarget: { artifactId: 'a', revision: 3, target: 'whole' },
+    })
+    const element = annotations.create({
+      nodeId: rootNode.id,
+      kind: 'whole',
+      visualTarget: { artifactId: 'a', revision: 3, target: 'element', elementType: 'node', elementId: 'n1' },
+    })
+    expect(annotations.get(whole.id)?.visual_target).toEqual({ artifactId: 'a', revision: 3, target: 'whole' })
+    expect(annotations.get(element.id)?.visual_target).toMatchObject({ target: 'element', elementId: 'n1' })
+    expect(annotations.get(whole.id)).not.toHaveProperty('visual_target_json')
+  })
 })

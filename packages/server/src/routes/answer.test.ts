@@ -44,6 +44,29 @@ describe('answer SSE route', () => {
     await app.close()
   })
 
+  it('streams visual placeholder then ready with matching identifiers', async () => {
+    const { app, deps, rootNode } = setup()
+    deps.providerOverride = createMockProvider({ toolScript: [
+      [{ type: 'tool_call', id: 'visual', name: 'create_visual', arguments: JSON.stringify({
+        kind: 'sequence', title: 'Sequence', altText: 'Client calls API', renderer: 'canvas',
+        nodes: [{ id: 'client', label: 'Client' }, { id: 'api', label: 'API' }],
+        edges: [{ id: 'call', source: 'client', target: 'api' }], groups: [],
+      }) }],
+      [{ type: 'text', text: 'Fallback description.' }],
+    ] })
+    const response = await app.inject({
+      method: 'POST', payload: { userInput: '画时序图' }, url: `/api/nodes/${rootNode.id}/answer`,
+    })
+    const events = response.body.trim().split('\n\n').map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>)
+    expect(events.map((event) => event.type)).toEqual(['visual_placeholder', 'visual_ready', 'chunk', 'done'])
+    expect(events[0]).toMatchObject({
+      placeholderId: events[1].placeholderId,
+      artifactId: events[1].artifactId,
+      revision: 1,
+    })
+    await app.close()
+  })
+
   it('returns JSON validation/not-found errors before opening SSE', async () => {
     const { app, rootNode } = setup()
     expect((await app.inject({

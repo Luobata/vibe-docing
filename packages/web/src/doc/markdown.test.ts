@@ -11,7 +11,7 @@ describe('renderMarkdown', () => {
 
   it('renders a table', () => {
     const html = renderMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |')
-    expect(html).toContain('<table>')
+    expect(html).toContain('<div class="doc-table-scroll"><table>')
     expect(html).toContain('<td>1</td>')
   })
 

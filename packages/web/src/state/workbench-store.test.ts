@@ -1,7 +1,12 @@
 import type { AnnotationRow, NodeRow, NodeVersionRow } from '@vibe/shared'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RouteConvergence } from '../api/types'
-import { computeChildTabs, useWorkbench } from './workbench-store'
+import {
+  computeChildTabs,
+  generationTaskKeys,
+  generationTaskRegistry,
+  useWorkbench,
+} from './workbench-store'
 
 function node(id: string, parentId: string | null, sortOrder = 0): NodeRow {
   return {
@@ -59,6 +64,15 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().mainNodeId).toBe('root')
     useWorkbench.getState().goForward()
     expect(useWorkbench.getState().mainNodeId).toBe('a')
+  })
+
+  it('marks a background completion unread and clears it when opened', () => {
+    const child = { ...node('a', 'root'), status: 'streaming' as const }
+    useWorkbench.getState().loadTree({ nodes: [node('root', null), child], rootNodeId: 'root', treeId: 'tree-1' })
+    useWorkbench.getState().upsertNode({ ...child, status: 'complete' })
+    expect(useWorkbench.getState().unreadNodeIds).toContain('a')
+    useWorkbench.getState().setActiveSubdoc('a')
+    expect(useWorkbench.getState().unreadNodeIds).not.toContain('a')
   })
 
   it('tracks route states, versions, trash, and focus without auto-promoting migrations', () => {
@@ -120,7 +134,7 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().focusedAnnotationId).toBeNull()
   })
 
-  it('tracks subdoc panel tab and anchored note', () => {
+  it('tracks subdoc panel tab and one-shot note/subdocument anchors', () => {
     const s = useWorkbench.getState()
     expect(useWorkbench.getState().subdocPanelTab).toBe('derivations')
     s.setSubdocPanelTab('notes')
@@ -129,6 +143,10 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().anchoredNoteId).toBe('ann-9')
     s.setAnchoredNoteId(null)
     expect(useWorkbench.getState().anchoredNoteId).toBeNull()
+    s.setAnchoredSubdocId('child-2')
+    expect(useWorkbench.getState().anchoredSubdocId).toBe('child-2')
+    s.setAnchoredSubdocId(null)
+    expect(useWorkbench.getState().anchoredSubdocId).toBeNull()
   })
 
   it('bumps the merge refresh tick so listeners can re-fetch', () => {
@@ -157,5 +175,142 @@ describe('workbench store', () => {
     expect(useWorkbench.getState().notesForMain.map((n) => n.id)).toEqual(['a1', 'a2'])
     useWorkbench.getState().setNotesForMain([note('a3')])
     expect(useWorkbench.getState().notesForMain.map((n) => n.id)).toEqual(['a3'])
+  })
+
+  it('runs different selection keys concurrently and rejects only duplicate key or target', () => {
+    const firstKey = generationTaskKeys.forkExpand('root', 0, 5)
+    const secondKey = generationTaskKeys.forkExpand('root', 6, 12)
+    const first = generationTaskRegistry.start({
+      key: firstKey,
+      kind: 'fork-expand',
+      ownerMainNodeId: 'root',
+    })
+    const second = generationTaskRegistry.start({
+      key: secondKey,
+      kind: 'fork-expand',
+      ownerMainNodeId: 'root',
+    })
+
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(first?.controller).not.toBe(second?.controller)
+    expect(generationTaskRegistry.start({
+      key: firstKey,
+      kind: 'fork-expand',
+      ownerMainNodeId: 'root',
+    })).toBeNull()
+
+    expect(first && generationTaskRegistry.setTarget(first, 'child-a')).toBe(true)
+    expect(generationTaskRegistry.start({
+      key: generationTaskKeys.retry('child-a'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'child-a',
+    })).toBeNull()
+  })
+
+  it('stops and settles one task without affecting another task', () => {
+    const first = generationTaskRegistry.start({
+      key: generationTaskKeys.retry('a'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'a',
+    })!
+    const second = generationTaskRegistry.start({
+      key: generationTaskKeys.retry('b'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'b',
+    })!
+
+    expect(generationTaskRegistry.stop(first.key)).toBe(true)
+    expect(first.controller.signal.aborted).toBe(true)
+    expect(second.controller.signal.aborted).toBe(false)
+    expect(generationTaskRegistry.getSnapshot().byKey[first.key].phase).toBe('stopping')
+    expect(generationTaskRegistry.settle(first, 'cancelled')).toBe(true)
+    expect(generationTaskRegistry.getSnapshot().byKey[first.key].status).toBe('cancelled')
+    expect(generationTaskRegistry.isTaskLive(second)).toBe(true)
+  })
+
+  it('settles a stopped task through its own two-second fallback', () => {
+    vi.useFakeTimers()
+    try {
+      const onCancelled = vi.fn()
+      const task = generationTaskRegistry.start({
+        key: generationTaskKeys.retry('fallback'),
+        kind: 'retry',
+        onCancelled,
+        ownerMainNodeId: 'root',
+        targetNodeId: 'fallback',
+      })!
+
+      generationTaskRegistry.stop(task.key)
+      expect(generationTaskRegistry.getSnapshot().byKey[task.key].phase).toBe('stopping')
+      vi.advanceTimersByTime(1999)
+      expect(generationTaskRegistry.getSnapshot().byKey[task.key].status).toBe('streaming')
+      vi.advanceTimersByTime(1)
+      expect(generationTaskRegistry.getSnapshot().byKey[task.key].status).toBe('cancelled')
+      expect(onCancelled).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('isolates task failures and keeps isTaskLive independent from the visible main node', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null), node('other', 'root')],
+      rootNodeId: 'root',
+      treeId: 'tree-1',
+    })
+    const failed = generationTaskRegistry.start({
+      key: generationTaskKeys.retry('root'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'root',
+    })!
+    const background = generationTaskRegistry.start({
+      key: generationTaskKeys.retry('other'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'other',
+    })!
+
+    useWorkbench.getState().setMain('other')
+    expect(generationTaskRegistry.isTaskLive(background)).toBe(true)
+    generationTaskRegistry.settle(failed, 'error', 'only root failed')
+    expect(generationTaskRegistry.getSnapshot().byKey[failed.key].error).toBe('only root failed')
+    expect(generationTaskRegistry.isTaskLive(background)).toBe(true)
+  })
+
+  it('aborts and clears every registered task when a tree is loaded or reset', () => {
+    const first = generationTaskRegistry.start({
+      key: generationTaskKeys.ask('root'),
+      kind: 'ask',
+      ownerMainNodeId: 'root',
+    })!
+    const second = generationTaskRegistry.start({
+      key: generationTaskKeys.retry('child'),
+      kind: 'retry',
+      ownerMainNodeId: 'root',
+      targetNodeId: 'child',
+    })!
+
+    useWorkbench.getState().loadTree({
+      nodes: [node('next-root', null)],
+      rootNodeId: 'next-root',
+      treeId: 'tree-2',
+    })
+    expect(first.controller.signal.aborted).toBe(true)
+    expect(second.controller.signal.aborted).toBe(true)
+    expect(generationTaskRegistry.getSnapshot()).toEqual({ byKey: {}, byTarget: {} })
+
+    const afterLoad = generationTaskRegistry.start({
+      key: generationTaskKeys.ask('next-root'),
+      kind: 'ask',
+      ownerMainNodeId: 'next-root',
+    })!
+    useWorkbench.getState().reset()
+    expect(afterLoad.controller.signal.aborted).toBe(true)
+    expect(generationTaskRegistry.getSnapshot()).toEqual({ byKey: {}, byTarget: {} })
   })
 })

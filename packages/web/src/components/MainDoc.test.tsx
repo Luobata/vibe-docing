@@ -68,6 +68,55 @@ describe('MainDoc fork flow', () => {
     expect(scroll.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('shows parent context for a derived document and can return to its source', async () => {
+    const root = { ...node('root', null), user_input: 'Memory 架构' }
+    const child = { ...node('child', 'root'), user_input: 'MemoryScope 结论' }
+    const source = {
+      anchor_from: 0, anchor_to: 11, child_node_id: 'child', created_at: '', id: 'ann-source',
+      kind: 'selection', node_id: 'root', note: null, quoted_text: 'MemoryScope 增加 roleId',
+    }
+    const api = {
+      getNode: vi.fn(async (id: string) => id === 'child'
+        ? { annotations: [], node: child, segments: [] }
+        : { annotations: [source], node: root, segments: [] }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root, child], rootNodeId: 'root', treeId: 't' })
+    useWorkbench.getState().setMain('child')
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    const context = await screen.findByLabelText('派生来源')
+    expect(context).toHaveTextContent('Memory 架构')
+    expect(context).toHaveTextContent('MemoryScope 增加 roleId')
+    fireEvent.click(within(context).getByRole('button', { name: '返回来源' }))
+    expect(useWorkbench.getState().mainNodeId).toBe('root')
+    expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-source')
+    expect(useWorkbench.getState().subdocPanelTab).toBe('derivations')
+    expect(useWorkbench.getState().activeSubdocId).toBe('child')
+    expect(useWorkbench.getState().anchoredSubdocId).toBe('child')
+  })
+
+  it('falls back to the child annotation seed when the parent link annotation is unavailable', async () => {
+    const root = { ...node('root', null), user_input: 'Memory 架构' }
+    const child = { ...node('child', 'root'), user_input: 'MemoryScope 结论' }
+    const api = {
+      getNode: vi.fn(async (id: string) => id === 'child'
+        ? {
+            annotations: [],
+            node: child,
+            segments: [{
+              content: 'MemoryScope 增加 roleId', id: 'seed', node_id: 'child', ref_node_id: 'root',
+              ref_version_no: null, seq: 0, type: 'annotation-seed',
+            }],
+          }
+        : { annotations: [], node: root, segments: [] }),
+    }
+    useWorkbench.getState().loadTree({ nodes: [root, child], rootNodeId: 'root', treeId: 't' })
+    useWorkbench.getState().setMain('child')
+    render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
+
+    expect(await screen.findByLabelText('派生来源')).toHaveTextContent('MemoryScope 增加 roleId')
+  })
+
   it('forks the selected text and opens the returned child tab', async () => {
     const root = node('root', null)
     const child = { ...node('child', 'root'), user_input: '深入' }
@@ -93,7 +142,7 @@ describe('MainDoc fork flow', () => {
     await waitFor(() => {
       expect(api.fork).toHaveBeenCalledWith('root', expect.objectContaining({
         kind: 'selection', seedText: '深入', treeId: 't',
-      }))
+      }), expect.any(AbortSignal))
       expect(useWorkbench.getState().subdocTabs).toContain('child')
     })
   })
@@ -271,7 +320,7 @@ describe('MainDoc fork flow', () => {
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '追问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     // now that root has an answer, the follow-up forks from root
-    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '追问' })))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '追问' }), expect.any(AbortSignal)))
   })
 
   it('streams an answer in place without opening a subdoc tab or promoting', async () => {
@@ -587,11 +636,11 @@ describe('MainDoc fork flow', () => {
     // build two turns
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ seedText: '第一问' })))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ seedText: '第一问' }), expect.any(AbortSignal)))
     await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第二问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ seedText: '第二问' })))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ seedText: '第二问' }), expect.any(AbortSignal)))
     // last turn errored → its retry button is present
     await waitFor(() => expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument())
 
@@ -631,12 +680,12 @@ describe('MainDoc fork flow', () => {
 
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第一问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '第一问' })))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(1, 'root', expect.objectContaining({ kind: 'whole', seedText: '第一问' }), expect.any(AbortSignal)))
 
     fireEvent.change(screen.getByLabelText('chat-input'), { target: { value: '第二问' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     // second turn forks from the FIRST answer node, not from root
-    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ kind: 'whole', seedText: '第二问' })))
+    await waitFor(() => expect(api.fork).toHaveBeenNthCalledWith(2, 'answer1', expect.objectContaining({ kind: 'whole', seedText: '第二问' }), expect.any(AbortSignal)))
   })
 
   it('surfaces thinking then replying status, and clears it when done', async () => {

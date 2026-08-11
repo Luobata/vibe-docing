@@ -42,6 +42,16 @@ describe('NotesTab create', () => {
     expect(input).toHaveValue('')
   })
 
+  it('grows the note composer with its content up to the visual cap', () => {
+    render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={() => {}} />)
+    const input = screen.getByLabelText('new-note-input') as HTMLTextAreaElement
+    Object.defineProperty(input, 'scrollHeight', { configurable: true, value: 120 })
+
+    fireEvent.change(input, { target: { value: '第一行\n第二行\n第三行' } })
+
+    expect(input.style.height).toBe('120px')
+  })
+
   it('disables the input and skips submit when there is no document', () => {
     const onCreateNote = vi.fn()
     render(<NotesTab annotations={[]} canCreateNote={false} onJump={() => {}} onCreateNote={onCreateNote} />)

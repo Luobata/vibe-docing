@@ -3,6 +3,12 @@ import { useEffect, useState } from 'react'
 import { useApi } from '../api/context'
 import type { Api } from '../api/client'
 import { useWorkbench } from '../state/workbench-store'
+import { ConfirmDialog } from './ConfirmDialog'
+
+interface PendingTreeDelete {
+  tree: TreeRow
+  trigger: HTMLButtonElement
+}
 
 export function TreeLauncher() {
   const api = useApi()
@@ -12,10 +18,11 @@ export function TreeLauncher() {
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [trees, setTrees] = useState<TreeRow[]>([])
-  const [deletedTrees, setDeletedTrees] = useState<TreeRow[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
-  const [restoringId, setRestoringId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<PendingTreeDelete | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -24,12 +31,6 @@ export function TreeLauncher() {
     void listTrees()
       .then((result) => { if (active) setTrees(result.trees) })
       .catch(() => { if (active) setError('树列表加载失败，仍可新建。') })
-    const listDeletedTrees = (api as Partial<Api>).listDeletedTrees
-    if (listDeletedTrees) {
-      void listDeletedTrees()
-        .then((result) => { if (active) setDeletedTrees(result.trees) })
-        .catch(() => { if (active) setError('已删除的树加载失败，请稍后重试。') })
-    }
     return () => { active = false }
   }, [api, treeId])
 
@@ -66,38 +67,19 @@ export function TreeLauncher() {
   }
 
   async function remove(tree: TreeRow): Promise<void> {
-    if (!window.confirm(`将删除树“${tree.title}”，可在回收站恢复。`)) return
-    setError(null)
-    setTrees((current) => current.filter((item) => item.id !== tree.id))
+    setDeleteBusy(true)
+    setDeleteError(null)
     try {
       await api.deleteTree(tree.id)
-      setDeletedTrees((current) => [
-        { ...tree, is_deleted: 1 },
-        ...current.filter((item) => item.id !== tree.id),
-      ])
+      setTrees((current) => current.filter((item) => item.id !== tree.id))
       if (useWorkbench.getState().treeId === tree.id) {
         useWorkbench.getState().reset()
       }
+      setPendingDelete(null)
     } catch {
-      setTrees((current) => [tree, ...current])
-      setError('删除树失败，请稍后重试。')
-    }
-  }
-
-  async function restore(tree: TreeRow): Promise<void> {
-    setRestoringId(tree.id)
-    setError(null)
-    try {
-      const result = await api.restoreTree(tree.id)
-      setTrees((current) => [
-        result.tree,
-        ...current.filter((item) => item.id !== result.tree.id),
-      ])
-      setDeletedTrees((current) => current.filter((item) => item.id !== tree.id))
-    } catch {
-      setError(`恢复树“${tree.title}”失败，请稍后重试。`)
+      setDeleteError('删除树失败，请稍后重试。')
     } finally {
-      setRestoringId(null)
+      setDeleteBusy(false)
     }
   }
 
@@ -168,36 +150,37 @@ export function TreeLauncher() {
                     {tree.title}
                   </button>
                   <button aria-label={`重命名“${tree.title}”`} className="tree-item-action" onClick={() => beginRename(tree)} type="button">✎</button>
-                  <button aria-label={`删除“${tree.title}”`} className="tree-item-action" onClick={() => { void remove(tree) }} type="button">×</button>
+                  <button
+                    aria-label={`删除“${tree.title}”`}
+                    className="tree-item-action"
+                    onClick={(event) => {
+                      setDeleteError(null)
+                      setPendingDelete({ tree, trigger: event.currentTarget })
+                    }}
+                    type="button"
+                  >
+                    ×
+                  </button>
                 </>
               )}
             </li>
           ))}
         </ul>
       )}
-      <section className="deleted-tree-section" aria-labelledby="deleted-tree-heading">
-        <h2 id="deleted-tree-heading">已删除的树</h2>
-        {deletedTrees.length > 0 ? (
-          <ul aria-label="已删除的树">
-            {deletedTrees.map((tree) => (
-              <li className="deleted-tree-item" key={tree.id}>
-                <span title={tree.title}>{tree.title}</span>
-                <button
-                  aria-label={`恢复“${tree.title}”`}
-                  disabled={restoringId === tree.id}
-                  onClick={() => { void restore(tree) }}
-                  type="button"
-                >
-                  {restoringId === tree.id ? '恢复中…' : '恢复'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="tree-list-empty">暂无已删除的树。</p>
-        )}
-      </section>
       {error && <p role="alert">{error}</p>}
+      {pendingDelete && (
+        <ConfirmDialog
+          busy={deleteBusy}
+          error={deleteError}
+          message={`将删除树“${pendingDelete.tree.title}”，可在回收站恢复。`}
+          onCancel={() => {
+            setDeleteError(null)
+            setPendingDelete(null)
+          }}
+          onConfirm={() => remove(pendingDelete.tree)}
+          returnFocusTo={pendingDelete.trigger}
+        />
+      )}
     </section>
   )
 }

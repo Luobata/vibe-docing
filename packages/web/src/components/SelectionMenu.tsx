@@ -1,15 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { generationTaskRegistry, useGenerationTasks } from '../state/workbench-store'
 
-export function SelectionMenu({ onClose, onPick, x, y }: {
+export function SelectionMenu({ onClose, onPick, taskKey = 'fork-expand:unknown:whole:whole', x, y }: {
   onClose(): void
   onPick(kind: 'note' | 'expand'): void
+  taskKey?: string
   x: number
   y: number
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: x, top: y })
   const [placement, setPlacement] = useState<'bottom' | 'top'>('top')
-  const [busy, setBusy] = useState(false)
+  const task = useGenerationTasks((snapshot) => snapshot.byKey[taskKey])
+  const busy = Boolean(task && generationTaskRegistry.isTaskLive(task))
 
   useLayoutEffect(() => {
     const update = () => {
@@ -30,14 +33,6 @@ export function SelectionMenu({ onClose, onPick, x, y }: {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [x, y])
-
-  useEffect(() => {
-    const detectBusy = () => setBusy(Boolean(document.querySelector('[data-testid="assistant-status"]')))
-    detectBusy()
-    const observer = new MutationObserver(detectBusy)
-    observer.observe(document.body, { childList: true, subtree: true })
-    return () => observer.disconnect()
-  }, [])
 
   useEffect(() => {
     let distance = 0
@@ -95,15 +90,26 @@ export function SelectionMenu({ onClose, onPick, x, y }: {
         <button onClick={() => onPick('note')} role="menuitem" type="button">笔记</button>
         <button
           aria-describedby={busy ? 'selection-expand-busy-reason' : undefined}
+          data-gen-status={busy ? 'streaming' : undefined}
+          data-task-key={taskKey}
           disabled={busy}
           onClick={() => onPick('expand')}
           role="menuitem"
-          title={busy ? '生成进行中，完成或停止后可展开' : undefined}
           type="button"
         >
           就此展开
         </button>
-        {busy && <span className="selection-menu-reason" id="selection-expand-busy-reason" role="status">生成进行中，暂不能展开</span>}
+        {busy && (
+          <span
+            className="selection-menu-reason"
+            data-gen-status="streaming"
+            data-task-key={taskKey}
+            id="selection-expand-busy-reason"
+            role="status"
+          >
+            该选区的展开正在进行中
+          </span>
+        )}
       </div>
     </>
   )

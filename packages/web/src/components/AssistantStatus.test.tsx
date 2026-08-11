@@ -15,8 +15,9 @@ describe('AssistantStatus', () => {
 
   it('calls onStop when the stop button is clicked', () => {
     const onStop = vi.fn()
-    render(<AssistantStatus onStop={onStop} phase="replying" />)
+    render(<AssistantStatus onStop={onStop} phase="replying" taskKey="ask:root" />)
     fireEvent.click(screen.getByRole('button', { name: '停止' }))
-    expect(onStop).toHaveBeenCalledOnce()
+    expect(onStop).toHaveBeenCalledWith('ask:root')
+    expect(screen.getByTestId('assistant-status')).toHaveAttribute('data-task-key', 'ask:root')
   })
 })
