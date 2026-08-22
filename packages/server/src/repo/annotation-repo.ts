@@ -15,6 +15,14 @@ interface CreateAnnotationInput {
 
 type AnnotationDbRow = Omit<AnnotationRow, 'visual_target'> & { visual_target_json: string | null }
 
+export interface AnnotationAnchorUpdate {
+  from: number | null
+  id: string
+  quotedText: string | null
+  status: 'valid' | 'orphaned'
+  to: number | null
+}
+
 function hydrate(row: AnnotationDbRow): AnnotationRow {
   const { visual_target_json: visualTargetJson, ...annotation } = row
   return {
@@ -71,5 +79,36 @@ export function createAnnotationRepo(db: Db, clock: Clock) {
     return rows.map(hydrate)
   }
 
-  return { create, get, linkChild, listByNode }
+  function listByTree(treeId: string): AnnotationRow[] {
+    const rows = db
+      .prepare(
+        `SELECT annotations.* FROM annotations
+         JOIN nodes ON nodes.id = annotations.node_id
+         WHERE nodes.tree_id = ? AND nodes.is_deleted = 0
+         ORDER BY annotations.created_at ASC, annotations.id ASC`,
+      )
+      .all(treeId) as AnnotationDbRow[]
+    return rows.map(hydrate)
+  }
+
+  function updateAnchors(nodeId: string, updates: AnnotationAnchorUpdate[]): void {
+    const update = db.prepare(
+      `UPDATE annotations
+       SET anchor_from = ?, anchor_to = ?, quoted_text = ?, anchor_status = ?
+       WHERE id = ? AND node_id = ?`,
+    )
+    for (const anchor of updates) {
+      const result = update.run(
+        anchor.from,
+        anchor.to,
+        anchor.quotedText,
+        anchor.status,
+        anchor.id,
+        nodeId,
+      )
+      if (result.changes !== 1) throw new Error(`Annotation not found on node: ${anchor.id}`)
+    }
+  }
+
+  return { create, get, linkChild, listByNode, listByTree, updateAnchors }
 }

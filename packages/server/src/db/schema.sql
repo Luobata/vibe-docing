@@ -14,15 +14,26 @@ CREATE TABLE IF NOT EXISTS nodes (
   sort_order INTEGER NOT NULL DEFAULT 0,
   user_input TEXT,
   ai_response TEXT,
+  document_content TEXT,
   status TEXT NOT NULL DEFAULT 'draft',
   is_deleted INTEGER NOT NULL DEFAULT 0,
   model_override TEXT,
+  content_revision INTEGER NOT NULL DEFAULT 0,
+  content_schema_version INTEGER NOT NULL DEFAULT 0,
+  content_updated_at TEXT,
+  vault_root TEXT,
+  file_path TEXT,
+  file_kind TEXT,
+  content_hash TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_tree ON nodes(tree_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_vault_file
+  ON nodes(vault_root, file_path)
+  WHERE vault_root IS NOT NULL AND file_path IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS annotations (
   id TEXT PRIMARY KEY,
@@ -34,6 +45,7 @@ CREATE TABLE IF NOT EXISTS annotations (
   note TEXT,
   child_node_id TEXT REFERENCES nodes(id),
   visual_target_json TEXT,
+  anchor_status TEXT NOT NULL DEFAULT 'valid',
   created_at TEXT NOT NULL
 );
 
@@ -57,13 +69,19 @@ CREATE TABLE IF NOT EXISTS node_versions (
   version_no INTEGER NOT NULL,
   user_input TEXT,
   ai_response TEXT,
+  document_content TEXT,
   change_kind TEXT NOT NULL,
+  edit_session_id TEXT,
+  content_revision INTEGER,
+  updated_at TEXT,
   created_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_versions_node ON node_versions(node_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_node_no
   ON node_versions(node_id, version_no);
+-- The edit-session index is created by connection.ts after legacy databases
+-- have received the edit_session_id column.
 
 CREATE TABLE IF NOT EXISTS merges (
   id TEXT PRIMARY KEY,

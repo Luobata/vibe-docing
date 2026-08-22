@@ -18,6 +18,9 @@ import { registerAnnotationRoutes } from './routes/annotation'
 import { registerSettingsRoutes } from './routes/settings'
 import { registerShareRoutes } from './routes/share'
 import { registerVisualArtifactRoutes } from './routes/visual-artifacts'
+import { registerDocumentContentRoutes } from './routes/document-content'
+import { registerVaultRoutes } from './routes/vault'
+import { registerSystemRoutes } from './routes/system'
 
 export type DecoratedApp = AppInstance & { deps: AppDeps }
 
@@ -31,6 +34,9 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerForkRoutes(app)
   registerAnswerRoutes(app)
   registerNodeEditRoutes(app)
+  registerDocumentContentRoutes(app)
+  registerVaultRoutes(app)
+  registerSystemRoutes(app)
   registerVersionRoutes(app)
   registerTrashRoutes(app)
   registerRouteConvergeRoutes(app)

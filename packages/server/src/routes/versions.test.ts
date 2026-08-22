@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildApp } from '../app'
+import { documentContentOf } from '@vibe/shared'
 import { plainTextToProseMirror, prosemirrorToPlainText } from '../context/prosemirror'
 import { openMemoryDb } from '../db/connection'
 import { createDeps } from '../deps'
@@ -13,9 +14,10 @@ function setup() {
   const { rootNode } = deps.trees.create('tree')
   for (const answer of ['a\nb\nc', 'a\nx\nc']) {
     const aiResponse = plainTextToProseMirror(answer)
-    deps.nodes.updateContent(rootNode.id, { aiResponse, status: 'complete' })
+    deps.nodes.updateGeneration(rootNode.id, { aiResponse, status: 'complete' })
     deps.versions.snapshot({
       aiResponse,
+      documentContent: aiResponse,
       changeKind: 'edit',
       nodeId: rootNode.id,
       userInput: null,
@@ -46,7 +48,9 @@ describe('version routes', () => {
       method: 'POST', url: `/api/nodes/${rootNode.id}/versions/1/revert`,
     })
     expect(reverted.statusCode).toBe(200)
-    expect(prosemirrorToPlainText(deps.nodes.get(rootNode.id)!.ai_response)).toBe('a\nb\nc')
+    const revertedNode = deps.nodes.get(rootNode.id)!
+    expect(prosemirrorToPlainText(documentContentOf(revertedNode))).toBe('a\nb\nc')
+    expect(prosemirrorToPlainText(revertedNode.ai_response)).toBe('a\nx\nc')
     expect(deps.versions.listByNode(rootNode.id).map((version) => version.version_no))
       .toEqual([1, 2, 3])
     await app.close()

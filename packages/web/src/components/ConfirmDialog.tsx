@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef } from 'react'
 
 export function ConfirmDialog({
   busy = false,
+  busyLabel = '删除中…',
   confirmLabel = '删除',
   error,
   message,
@@ -11,6 +12,7 @@ export function ConfirmDialog({
   title = '确认删除',
 }: {
   busy?: boolean
+  busyLabel?: string
   confirmLabel?: string
   error?: string | null
   message: string
@@ -78,7 +80,7 @@ export function ConfirmDialog({
             onClick={() => { void onConfirm() }}
             type="button"
           >
-            {busy ? '删除中…' : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

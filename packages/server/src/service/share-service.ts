@@ -1,4 +1,4 @@
-import { prosemirrorToRenderRuns, type AnnotationKind, type DocumentShareView, type NodeRow, type TreeRow, type VisualArtifact } from '@vibe/shared'
+import { documentContentOf, prosemirrorToRenderRuns, type AnnotationKind, type DocumentShareView, type NodeRow, type TreeRow, type VisualArtifact } from '@vibe/shared'
 import type { Db } from '../db/connection'
 import type { ShareRepo, ShareRow } from '../repo/share-repo'
 import { tokenForShare } from '../repo/share-repo'
@@ -67,7 +67,7 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
     const visuals = new Map<string, VisualArtifact>()
     const visit = (node: ShareNode): void => {
       const row = node.row
-      for (const source of [row.user_input, row.ai_response]) {
+      for (const source of [row.user_input, documentContentOf(row)]) {
         for (const run of prosemirrorToRenderRuns(source)) {
           if (run.type !== 'visual') continue
           const key = visualReferenceKey(run.reference)

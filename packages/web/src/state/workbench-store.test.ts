@@ -34,10 +34,12 @@ describe('workbench store', () => {
       nodes,
       rootNodeId: 'root',
       treeId: 'tree-1',
+      treeTitle: '我的笔记库',
     })
 
     expect(useWorkbench.getState().mainNodeId).toBe('root')
     expect(useWorkbench.getState().mainPath).toEqual(['root'])
+    expect(useWorkbench.getState().treeTitle).toBe('我的笔记库')
     expect(computeChildTabs(useWorkbench.getState().nodesById, 'root')).toEqual([
       'b',
       'a',

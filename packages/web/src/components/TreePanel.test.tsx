@@ -48,6 +48,35 @@ describe('tree and breadcrumb navigation', () => {
     expect(screen.getByRole('button', { name: '缓存问题' })).toBeInTheDocument()
   })
 
+  it('renames a child title without invoking generation', async () => {
+    const editNode = vi.fn(async (_id: string, body: { userInput: string }) => ({
+      node: node('a', 'root', body.userInput),
+    }))
+    render(<ApiProvider api={{ editNode } as never}><TreePanel /></ApiProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: '重命名“缓存问题”' }))
+    const input = screen.getByLabelText('重命名“缓存问题”')
+    fireEvent.change(input, { target: { value: '缓存排查记录' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(editNode).toHaveBeenCalledWith('a', { userInput: '缓存排查记录' }))
+    expect(screen.getByRole('button', { name: '缓存排查记录' })).toBeInTheDocument()
+  })
+
+  it('creates a blank note below the current selection and opens it', async () => {
+    const created = node('blank', 'root', '会议记录')
+    const createBlankNote = vi.fn(async () => ({ node: created }))
+    render(<ApiProvider api={{ createBlankNote } as never}><TreePanel /></ApiProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建空白笔记' }))
+    fireEvent.change(screen.getByLabelText('空白笔记标题'), { target: { value: '会议记录' } })
+    fireEvent.click(screen.getByRole('button', { name: '新建' }))
+
+    await waitFor(() => expect(createBlankNote).toHaveBeenCalledWith('root', '会议记录'))
+    expect(useWorkbench.getState().mainNodeId).toBe('blank')
+    expect(screen.getByRole('button', { name: '会议记录' })).toBeInTheDocument()
+  })
+
   it('renders a clickable breadcrumb and drives back/forward controls', () => {
     useWorkbench.getState().setMain('a')
     render(<Breadcrumb />)
@@ -135,7 +164,7 @@ describe('root node deletion', () => {
 
     fireEvent.click(screen.getByLabelText('删除“根”'))
     const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
-    expect(dialog).toHaveTextContent('将删除整棵树“根”')
+    expect(dialog).toHaveTextContent('将删除笔记库“根”及其中全部内容')
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(api.deleteTree).toHaveBeenCalledWith('t'))

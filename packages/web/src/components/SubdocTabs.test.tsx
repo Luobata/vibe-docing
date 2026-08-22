@@ -50,7 +50,7 @@ describe('SubdocTabs', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /MemoryScope/ }))
     expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-a')
-    expect(screen.getByText('来源：选中文本派生')).toHaveAttribute('data-source-kind', 'selection')
+    expect(screen.getByText('基于：选中的原文')).toHaveAttribute('data-source-kind', 'selection')
     expect(screen.queryByRole('button', { name: '查看主文档' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('tab', { name: /MemoryScope/ })).toHaveClass('is-anchor-flash'))
 
@@ -70,7 +70,7 @@ describe('SubdocTabs', () => {
     } satisfies AnnotationRow
     render(<ApiProvider api={{} as never}><SubdocTabs annotations={[source]} /></ApiProvider>)
 
-    expect(screen.getByText('来源：整份文档追问 · 无具体原文锚点')).toHaveAttribute('data-source-kind', 'whole')
+    expect(screen.getByText('基于：整篇笔记 · 无具体原文位置')).toHaveAttribute('data-source-kind', 'whole')
     expect(screen.queryByRole('button', { name: '定位原文' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: /整份文档的问题/ }))
     expect(useWorkbench.getState().focusedAnnotationId).toBeNull()

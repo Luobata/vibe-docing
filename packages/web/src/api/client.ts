@@ -3,6 +3,8 @@ import type {
   AnnotationRow,
   ContextSegmentRow,
   DocumentShareResponse,
+  DocumentAnchorPatch,
+  DocumentContentView,
   MergeRow,
   NodeRow,
   NodeVersionRow,
@@ -30,6 +32,11 @@ export interface AnswerStreamHandlers {
   onDone(node: NodeRow): void
   onError(message: string): void
   onVisual?(event: VisualStreamEvent): void
+}
+
+export interface VersionDiffLine {
+  text: string
+  type: 'same' | 'add' | 'del'
 }
 
 function isAbortError(error: unknown, signal?: AbortSignal): boolean {
@@ -118,18 +125,46 @@ export function createApi(options?: {
         body: JSON.stringify({ title }),
         method: 'POST',
       }),
+    createBlankNote: (parentNodeId: string, title: string) =>
+      json<{ node: NodeRow }>(`/nodes/${parentNodeId}/children`, {
+        body: JSON.stringify({ title }),
+        method: 'POST',
+      }),
     deleteNode: (nodeId: string) =>
       json<{ ok: true }>(`/nodes/${nodeId}`, { method: 'DELETE' }),
     deleteTree: (treeId: string) =>
       json<{ ok: true }>(`/trees/${treeId}`, { method: 'DELETE' }),
     diffVersions: (nodeId: string, from: number, to: number) =>
-      json<{ diff: unknown }>(`/nodes/${nodeId}/versions/${from}/diff/${to}`),
+      json<{ diff: VersionDiffLine[] }>(`/nodes/${nodeId}/versions/${from}/diff/${to}`),
     editNode: (
       nodeId: string,
       body: { aiResponse?: string | null; userInput?: string | null },
     ) =>
       json<{ node: NodeRow }>(`/nodes/${nodeId}`, {
         body: JSON.stringify(body),
+        method: 'PATCH',
+      }),
+    saveDocumentContent: (
+      nodeId: string,
+      body: ({
+        anchors?: DocumentAnchorPatch[]
+        baseRevision: number
+        doc: import('@vibe/shared').ProseMirrorNode
+        editSessionId: string
+        schemaVersion: 1
+      } | {
+        anchors?: DocumentAnchorPatch[]
+        baseRevision: number
+        editSessionId: string
+        fileKind: 'markdown' | 'canvas' | 'base'
+        schemaVersion: 2
+        source: string
+      }),
+      options?: { keepalive?: boolean },
+    ) =>
+      json<{ content: DocumentContentView; node: NodeRow }>(`/nodes/${nodeId}/content`, {
+        body: JSON.stringify(body),
+        keepalive: options?.keepalive,
         method: 'PATCH',
       }),
     fork: (
@@ -161,6 +196,12 @@ export function createApi(options?: {
       json<{ artifact: VisualArtifact }>(`/visual-artifacts/${encodeURIComponent(artifactId)}/${revision}`),
     getSettings: (signal?: AbortSignal) =>
       json<SettingsView>('/settings', { signal }),
+    pickDirectory: (kind: 'vault' | 'project') =>
+      json<{ path: string }>('/system/pick-directory', {
+        body: JSON.stringify({ kind }),
+        method: 'POST',
+      }),
+    syncVault: () => json<{ imported: number; path: string; scanned: number }>('/vault/sync', { method: 'POST' }),
     updateSettings: (patch: SettingsPatch, signal?: AbortSignal) =>
       json<SettingsView>('/settings', {
         body: JSON.stringify(patch),
@@ -170,7 +211,12 @@ export function createApi(options?: {
     getTrash: (treeId: string) =>
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
     getTree: (treeId: string) =>
-      json<{ nodes: NodeRow[]; tree: TreeRow }>(`/trees/${treeId}`),
+      json<{
+        annotations: AnnotationRow[]
+        merges: MergeRow[]
+        nodes: NodeRow[]
+        tree: TreeRow
+      }>(`/trees/${treeId}`),
     getShare: (nodeId: string) =>
       json<DocumentShareResponse>(`/nodes/${nodeId}/share`),
     createShare: (nodeId: string) =>

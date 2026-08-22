@@ -4,6 +4,7 @@ import { useApi } from '../api/context'
 import type { Api } from '../api/client'
 import { useWorkbench } from '../state/workbench-store'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Icon } from './Icon'
 
 interface PendingTreeDelete {
   tree: TreeRow
@@ -13,6 +14,7 @@ interface PendingTreeDelete {
 export function TreeLauncher() {
   const api = useApi()
   const loadTree = useWorkbench((state) => state.loadTree)
+  const setTreeTitle = useWorkbench((state) => state.setTreeTitle)
   const treeId = useWorkbench((state) => state.treeId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,9 +32,19 @@ export function TreeLauncher() {
     if (!listTrees) return () => { active = false }
     void listTrees()
       .then((result) => { if (active) setTrees(result.trees) })
-      .catch(() => { if (active) setError('树列表加载失败，仍可新建。') })
+      .catch(() => { if (active) setError('笔记库列表加载失败，仍可新建。') })
     return () => { active = false }
   }, [api, treeId])
+
+  useEffect(() => {
+    const reload = () => {
+      const listTrees = (api as Partial<Api>).listTrees
+      if (!listTrees) return
+      void listTrees().then((result) => setTrees(result.trees)).catch(() => setError('Vault 同步后刷新失败。'))
+    }
+    window.addEventListener('vibe:vault-synced', reload)
+    return () => window.removeEventListener('vibe:vault-synced', reload)
+  }, [api])
 
   async function create(): Promise<void> {
     const value = title.trim()
@@ -41,11 +53,16 @@ export function TreeLauncher() {
     setError(null)
     try {
       const result = await api.createTree(value)
-      loadTree({ nodes: [result.rootNode], rootNodeId: result.rootNode.id, treeId: result.tree.id })
+      loadTree({
+        nodes: [result.rootNode],
+        rootNodeId: result.rootNode.id,
+        treeId: result.tree.id,
+        treeTitle: result.tree.title,
+      })
       setTrees((current) => [result.tree, ...current.filter((tree) => tree.id !== result.tree.id)])
       setTitle('')
     } catch {
-      setError('新建树失败，请检查本地服务。')
+      setError('新建笔记库失败，请检查本地服务。')
     } finally {
       setBusy(false)
     }
@@ -58,9 +75,16 @@ export function TreeLauncher() {
       const result = await api.getTree(tree.id)
       const rootNodeId = result.tree.root_node_id
       if (!rootNodeId) throw new Error('tree has no root')
-      loadTree({ nodes: result.nodes, rootNodeId, treeId: result.tree.id })
+      loadTree({
+        annotations: result.annotations,
+        merges: result.merges,
+        nodes: result.nodes,
+        rootNodeId,
+        treeId: result.tree.id,
+        treeTitle: result.tree.title,
+      })
     } catch {
-      setError('打开树失败。')
+      setError('打开笔记库失败。')
     } finally {
       setBusy(false)
     }
@@ -77,7 +101,7 @@ export function TreeLauncher() {
       }
       setPendingDelete(null)
     } catch {
-      setDeleteError('删除树失败，请稍后重试。')
+      setDeleteError('删除笔记库失败，请稍后重试。')
     } finally {
       setDeleteBusy(false)
     }
@@ -95,13 +119,14 @@ export function TreeLauncher() {
     try {
       const result = await api.renameTree(tree.id, value)
       setTrees((current) => current.map((item) => (item.id === tree.id ? result.tree : item)))
+      if (useWorkbench.getState().treeId === tree.id) setTreeTitle(result.tree.title)
     } catch {
       setError('重命名失败，请稍后重试。')
     }
   }
 
   return (
-    <section className="tree-launcher" aria-label="树入口">
+    <section className="tree-launcher" aria-label="笔记库入口">
       <div className="new-tree-row">
         <input
           aria-label="new-tree-title"
@@ -116,13 +141,13 @@ export function TreeLauncher() {
             event.preventDefault()
             void create()
           }}
-          placeholder="给新树一个标题"
+          placeholder="输入笔记库名称"
           value={title}
         />
-        <button disabled={busy || !title.trim()} onClick={() => { void create() }} title={title.trim() ? undefined : '请先输入标题'} type="button">新建树</button>
+        <button disabled={busy || !title.trim()} onClick={() => { void create() }} title={title.trim() ? undefined : '请先输入名称'} type="button">新建笔记库</button>
       </div>
       {trees.length > 0 && (
-        <ul aria-label="已有树">
+        <ul aria-label="已有笔记库">
           {trees.map((tree) => (
             <li className="tree-item" key={tree.id}>
               {editingId === tree.id ? (
@@ -149,7 +174,15 @@ export function TreeLauncher() {
                   >
                     {tree.title}
                   </button>
-                  <button aria-label={`重命名“${tree.title}”`} className="tree-item-action" onClick={() => beginRename(tree)} type="button">✎</button>
+                  <button
+                    aria-label={`重命名“${tree.title}”`}
+                    className="tree-item-action"
+                    onClick={() => beginRename(tree)}
+                    title="重命名"
+                    type="button"
+                  >
+                    <Icon name="edit" size={13} />
+                  </button>
                   <button
                     aria-label={`删除“${tree.title}”`}
                     className="tree-item-action"
@@ -157,9 +190,10 @@ export function TreeLauncher() {
                       setDeleteError(null)
                       setPendingDelete({ tree, trigger: event.currentTarget })
                     }}
+                    title="移到回收站"
                     type="button"
                   >
-                    ×
+                    <Icon name="trash" size={13} />
                   </button>
                 </>
               )}
@@ -172,7 +206,7 @@ export function TreeLauncher() {
         <ConfirmDialog
           busy={deleteBusy}
           error={deleteError}
-          message={`将删除树“${pendingDelete.tree.title}”，可在回收站恢复。`}
+          message={`将删除笔记库“${pendingDelete.tree.title}”，可在回收站恢复。`}
           onCancel={() => {
             setDeleteError(null)
             setPendingDelete(null)

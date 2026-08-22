@@ -12,7 +12,11 @@ import { createVersionRepo } from './repo/version-repo'
 import { createVisualArtifactRepo } from './repo/visual-artifact-repo'
 import { createAnswerService } from './service/answer-service'
 import { createShareService } from './service/share-service'
+import { createVaultService } from './service/vault-service'
 import { systemClock, type Clock } from './util/clock'
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
 
 export interface AppDeps {
   annotations: ReturnType<typeof createAnnotationRepo>
@@ -30,9 +34,10 @@ export interface AppDeps {
   trees: ReturnType<typeof createTreeRepo>
   versions: ReturnType<typeof createVersionRepo>
   visualArtifacts: ReturnType<typeof createVisualArtifactRepo>
+  vault: ReturnType<typeof createVaultService>
 }
 
-export function createDeps(options: { clock?: Clock; db: Db }): AppDeps {
+export function createDeps(options: { clock?: Clock; db: Db; vaultPath?: string }): AppDeps {
   const clock = options.clock ?? systemClock
   const nodes = createNodeRepo(options.db, clock)
   const segments = createSegmentRepo(options.db)
@@ -41,6 +46,16 @@ export function createDeps(options: { clock?: Clock; db: Db }): AppDeps {
   const settings = createSettingsRepo(options.db)
   const shares = createShareRepo(options.db, clock)
   const visualArtifacts = createVisualArtifactRepo(options.db, clock)
+  const memoryVault = options.db.name === ':memory:'
+    ? resolve(tmpdir(), `vibe-docing-memory-vault-${randomUUID()}`)
+    : undefined
+  const vault = createVaultService({
+    clock,
+    db: options.db,
+    defaultRoot: options.vaultPath ?? memoryVault,
+    nodes,
+    settings,
+  })
 
   return {
     annotations: createAnnotationRepo(options.db, clock),
@@ -57,5 +72,6 @@ export function createDeps(options: { clock?: Clock; db: Db }): AppDeps {
     trees: createTreeRepo(options.db, clock),
     versions,
     visualArtifacts,
+    vault,
   }
 }

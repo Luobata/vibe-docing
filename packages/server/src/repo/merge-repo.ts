@@ -41,5 +41,16 @@ export function createMergeRepo(db: Db, clock: Clock) {
       .all(targetNodeId) as MergeRow[]
   }
 
-  return { record, listByTarget }
+  function listByTree(treeId: string): MergeRow[] {
+    return db
+      .prepare(
+        `SELECT merges.* FROM merges
+         JOIN nodes ON nodes.id = merges.target_node_id
+         WHERE nodes.tree_id = ? AND nodes.is_deleted = 0
+         ORDER BY merges.created_at ASC, merges.id ASC`,
+      )
+      .all(treeId) as MergeRow[]
+  }
+
+  return { listByTarget, listByTree, record }
 }

@@ -6,9 +6,10 @@ interface SettingsUpdate {
   model?: string
   projectRoot?: string
   provider?: string
+  vaultPath?: string
 }
 
-const allowedKeys = new Set(['apiKey', 'baseUrl', 'model', 'projectRoot', 'provider'])
+const allowedKeys = new Set(['apiKey', 'baseUrl', 'model', 'projectRoot', 'provider', 'vaultPath'])
 
 function parseUpdate(body: unknown): SettingsUpdate | undefined {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return undefined
@@ -26,6 +27,7 @@ function settingsView(app: DecoratedApp) {
     model: config.model,
     projectRoot: app.deps.settings.getProjectRoot(),
     provider: config.provider,
+    vaultPath: app.deps.settings.getVaultPath() ?? app.deps.vault.root(),
   }
 }
 
@@ -41,10 +43,12 @@ export function registerSettingsRoutes(app: DecoratedApp): void {
       ['provider.apiKey', parsed.apiKey],
       ['provider.baseUrl', parsed.baseUrl],
       ['project.root', parsed.projectRoot],
+      ['vault.path', parsed.vaultPath],
     ]
     for (const [key, value] of values) {
       if (value !== undefined) app.deps.settings.set(key, value)
     }
+    if (parsed.vaultPath !== undefined) app.deps.vault.sync()
     return settingsView(app)
   })
 }

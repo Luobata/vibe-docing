@@ -1,4 +1,5 @@
 import type { DecoratedApp } from '../app'
+import { documentContentOf } from '@vibe/shared'
 
 function recordBody(body: unknown): Record<string, unknown> | undefined {
   return typeof body === 'object' && body !== null && !Array.isArray(body)
@@ -16,6 +17,41 @@ function validProseMirror(value: string): boolean {
 }
 
 export function registerNodeEditRoutes(app: DecoratedApp): void {
+  app.post('/api/nodes/:id/children', async (request, reply) => {
+    const parent = app.deps.nodes.get(request.params.id)
+    if (!parent || parent.is_deleted === 1) {
+      return reply.code(404).send({ error: 'parent node not found' })
+    }
+    const body = recordBody(request.body)
+    const title = typeof body?.title === 'string' ? body.title.trim() : ''
+    if (!title || title.length > 200) {
+      return reply.code(400).send({ error: 'invalid note title' })
+    }
+
+    const createBlankNote = app.deps.db.transaction(() => {
+      const created = app.deps.nodes.create({
+        parentId: parent.id,
+        status: 'complete',
+        treeId: parent.tree_id,
+        userInput: title,
+      })
+      const node = app.deps.nodes.updateContent(created.id, {
+        contentSchemaVersion: 2,
+        documentContent: '',
+        status: 'complete',
+      })
+      app.deps.versions.snapshot({
+        aiResponse: node.ai_response,
+        changeKind: 'edit',
+        documentContent: '',
+        nodeId: node.id,
+        userInput: node.user_input,
+      })
+      return node
+    })
+    return { node: createBlankNote() }
+  })
+
   app.patch('/api/nodes/:id', async (request, reply) => {
     const body = recordBody(request.body)
     const hasUserInput = body && Object.hasOwn(body, 'userInput')
@@ -37,11 +73,14 @@ export function registerNodeEditRoutes(app: DecoratedApp): void {
       return reply.code(404).send({ error: 'node not found' })
     }
     const node = app.deps.nodes.updateContent(existing.id, {
-      aiResponse: hasAiResponse ? (aiResponse as string | null) : undefined,
+      // aiResponse is retained as a deprecated request key for older clients;
+      // edits now target the document body and never rewrite model evidence.
+      documentContent: hasAiResponse ? (aiResponse as string | null) : undefined,
       userInput: hasUserInput ? (userInput as string | null) : undefined,
     })
     app.deps.versions.snapshot({
       aiResponse: node.ai_response,
+      documentContent: documentContentOf(node),
       changeKind: 'edit',
       nodeId: node.id,
       userInput: node.user_input,

@@ -23,14 +23,15 @@ describe('AnswerService cancellation', () => {
     const service = createAnswerService({
       nodes: {
         get: () => current,
-        updateContent: (_id: string, patch: {
-          aiResponse?: string | null
+        updateGeneration: (_id: string, patch: {
+          aiResponse: string
           status?: NodeRow['status']
           userInput?: string | null
         }) => {
           current = {
             ...current,
-            ai_response: patch.aiResponse ?? current.ai_response,
+            ai_response: patch.aiResponse,
+            document_content: patch.aiResponse,
             status: patch.status ?? current.status,
             user_input: patch.userInput ?? current.user_input,
           }
@@ -62,6 +63,7 @@ describe('AnswerService cancellation', () => {
 
     expect(current.status).toBe('cancelled')
     expect(prosemirrorToPlainText(current.ai_response)).toBe('部分')
+    expect(prosemirrorToPlainText(current.document_content ?? null)).toBe('部分')
     expect(snapshot).not.toHaveBeenCalled()
   })
 })

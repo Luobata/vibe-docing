@@ -33,6 +33,7 @@ export interface SettingsView {
   model: string
   projectRoot: string | null
   provider: string
+  vaultPath?: string
 }
 
 export interface SettingsPatch {
@@ -41,5 +42,5 @@ export interface SettingsPatch {
   model?: string
   projectRoot?: string
   provider?: string
+  vaultPath?: string
 }
-

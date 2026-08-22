@@ -45,10 +45,15 @@ export function createSettingsRepo(db: Db) {
     return v && v.trim() ? v : null
   }
 
+  function getVaultPath(): string | null {
+    const value = get('vault.path')
+    return value && value.trim() ? value.trim() : null
+  }
+
   const configuredModel = get('provider.model')
   if (configuredModel && LEGACY_PROVIDER_MODELS.has(configuredModel.trim())) {
     set('provider.model', DEFAULT_PROVIDER_MODEL)
   }
 
-  return { get, getProjectRoot, getProviderConfig, set }
+  return { get, getProjectRoot, getProviderConfig, getVaultPath, set }
 }

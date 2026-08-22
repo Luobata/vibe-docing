@@ -1,4 +1,7 @@
 export * from './prosemirror'
+export * from './code-fence'
+export * from './markdown'
+export * from './json-canvas'
 export * from './share-schema'
 export * from './types'
 export * from './visual-artifact'

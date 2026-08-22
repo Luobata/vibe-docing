@@ -64,9 +64,16 @@ export function useWorkbenchRoute(api: Api) {
           try {
             const result = await getTree(route.treeId)
             const rootNodeId = result.tree.root_node_id
-            if (rootNodeId) useWorkbench.getState().loadTree({ nodes: result.nodes, rootNodeId, treeId: result.tree.id })
+            if (rootNodeId) useWorkbench.getState().loadTree({
+              annotations: result.annotations,
+              merges: result.merges,
+              nodes: result.nodes,
+              rootNodeId,
+              treeId: result.tree.id,
+              treeTitle: result.tree.title,
+            })
           } catch {
-            useWorkbench.getState().setToast('链接中的文档树加载失败。')
+            useWorkbench.getState().setToast('链接中的笔记库加载失败。')
           }
         }
       }

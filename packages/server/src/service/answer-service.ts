@@ -1,4 +1,4 @@
-import type { NodeRow, VisualReference, VisualStreamEvent } from '@vibe/shared'
+import { normalizeFencedCodeBlocks, type NodeRow, type VisualReference, type VisualStreamEvent } from '@vibe/shared'
 import { assembleContext, type ChatMessage } from '../context/assemble'
 import { plainTextToProseMirror } from '../context/prosemirror'
 import type { Provider } from '../provider/types'
@@ -29,7 +29,7 @@ function isAbortError(error: unknown, signal?: AbortSignal): boolean {
 }
 
 function answerToProseMirror(text: string, references: VisualReference[]): string {
-  const document = JSON.parse(plainTextToProseMirror(text)) as {
+  const document = JSON.parse(plainTextToProseMirror(normalizeFencedCodeBlocks(text))) as {
     content?: Array<Record<string, unknown>>
     type: string
   }
@@ -68,19 +68,20 @@ export function createAnswerService(deps: {
 
     let accumulated = ''
     const visualReferences: VisualReference[] = []
-    deps.nodes.updateContent(input.nodeId, {
+    deps.nodes.updateGeneration(input.nodeId, {
       aiResponse: answerToProseMirror(accumulated, visualReferences),
       status: 'streaming',
       userInput: input.userInput,
     })
 
     const complete = (): NodeRow => {
-      const node = deps.nodes.updateContent(input.nodeId, {
+      const node = deps.nodes.updateGeneration(input.nodeId, {
         aiResponse: answerToProseMirror(accumulated, visualReferences),
         status: 'complete',
       })
       deps.versions.snapshot({
         aiResponse: node.ai_response,
+        documentContent: node.document_content ?? null,
         changeKind: 'regenerate',
         nodeId: node.id,
         userInput: node.user_input,
@@ -101,7 +102,7 @@ export function createAnswerService(deps: {
       })) {
         input.signal?.throwIfAborted()
         accumulated += chunk
-        deps.nodes.updateContent(input.nodeId, {
+        deps.nodes.updateGeneration(input.nodeId, {
           aiResponse: answerToProseMirror(accumulated, visualReferences),
           status: 'streaming',
         })
@@ -112,18 +113,19 @@ export function createAnswerService(deps: {
       return complete()
     } catch (error) {
       if (isAbortError(error, input.signal)) {
-        deps.nodes.updateContent(input.nodeId, {
+        deps.nodes.updateGeneration(input.nodeId, {
           aiResponse: answerToProseMirror(accumulated, visualReferences),
           status: 'cancelled',
         })
         throw error
       }
-      const node = deps.nodes.updateContent(input.nodeId, {
+      const node = deps.nodes.updateGeneration(input.nodeId, {
         aiResponse: answerToProseMirror(accumulated, visualReferences),
         status: 'error',
       })
       deps.versions.snapshot({
         aiResponse: node.ai_response,
+        documentContent: node.document_content ?? null,
         changeKind: 'regenerate',
         nodeId: node.id,
         userInput: node.user_input,
@@ -159,7 +161,7 @@ export function createAnswerService(deps: {
       const commitTextChunks = (chunks: string[]): void => {
         for (const chunk of chunks) {
           accumulated += chunk
-          deps.nodes.updateContent(loopInput.nodeId, {
+          deps.nodes.updateGeneration(loopInput.nodeId, {
             aiResponse: answerToProseMirror(accumulated, visualReferences),
             status: 'streaming',
           })
@@ -224,7 +226,7 @@ export function createAnswerService(deps: {
                 argsJson: call.arguments, artifactId, revision, artifacts: deps.visualArtifacts,
               })
               visualReferences.push({ artifactId, revision, altText: artifact.altText })
-              deps.nodes.updateContent(loopInput.nodeId, {
+              deps.nodes.updateGeneration(loopInput.nodeId, {
                 aiResponse: answerToProseMirror(accumulated, visualReferences),
                 status: 'streaming',
               })
@@ -255,7 +257,7 @@ export function createAnswerService(deps: {
       })) {
         loopInput.signal?.throwIfAborted()
         accumulated += chunk
-        deps.nodes.updateContent(loopInput.nodeId, {
+        deps.nodes.updateGeneration(loopInput.nodeId, {
           aiResponse: answerToProseMirror(accumulated, visualReferences),
           status: 'streaming',
         })

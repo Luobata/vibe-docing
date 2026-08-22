@@ -6,24 +6,26 @@ import { scrollMainDocumentToTop } from '../flow/document-transition'
 import { useGenerationTasks, useWorkbench } from '../state/workbench-store'
 import { useWorkbenchRoute } from '../flow/workbench-route'
 import { Breadcrumb } from './Breadcrumb'
+import { Icon } from './Icon'
 import { MainDoc } from './MainDoc'
 import { MainQuestionSummary } from './MainQuestionSummary'
+import { SessionMap } from './SessionMap'
 import { SettingsPanel } from './SettingsPanel'
 import { SharePanel } from './SharePanel'
 import { SubdocPanelTabs } from './SubdocPanelTabs'
 import { GenerationBadge, generationBadgeState } from './SubdocTabs'
 import { groupSubdocIds, isSelectionSource } from './subdoc-classification'
 import { TrashPage } from './TrashPage'
-import { TreePanel } from './TreePanel'
+import { nodeTitle, TreePanel } from './TreePanel'
 import { TreeLauncher } from './TreeLauncher'
 import { VersionPanel } from './VersionPanel'
 import './Workbench.css'
 
 type WorkbenchPanel = 'main' | 'subdoc' | 'tree'
 const MOBILE_PANELS: ReadonlyArray<readonly [WorkbenchPanel, string]> = [
-  ['tree', '树'],
+  ['tree', '笔记库'],
   ['main', '文档'],
-  ['subdoc', '子文档'],
+  ['subdoc', '关联'],
 ]
 
 function SubdocOverflow({ annotations, nodeIds }: { annotations: AnnotationRow[]; nodeIds: string[] }) {
@@ -105,14 +107,14 @@ function SubdocOverflow({ annotations, nodeIds }: { annotations: AnnotationRow[]
         className="subdoc-overflow-trigger"
         onClick={() => setOpen((shown) => !shown)}
         ref={buttonRef}
-        title={`还有 ${nodeIds.length} 个分支`}
+        title={`还有 ${nodeIds.length} 个关联内容`}
         type="button"
       >
         更多 ({nodeIds.length})
       </button>
       {open && (
         <div
-          aria-label="更多子文档"
+          aria-label="更多关联内容"
           className="subdoc-overflow-list"
           data-placement={placement}
           onKeyDown={handleKeyDown}
@@ -149,11 +151,15 @@ function SubdocOverflow({ annotations, nodeIds }: { annotations: AnnotationRow[]
   )
 }
 
-function nodeLabel(id: string | null, nodesById: ReturnType<typeof useWorkbench.getState>['nodesById']): string {
+function nodeLabel(
+  id: string | null,
+  nodesById: ReturnType<typeof useWorkbench.getState>['nodesById'],
+  treeTitle: string | null = null,
+): string {
   if (!id) return '未选择文档'
   const node = nodesById[id]
   if (!node) return '未选择文档'
-  return node.user_input?.split('\n')[0]?.trim() || (node.parent_id ? '未命名' : '根')
+  return nodeTitle(node, treeTitle)
 }
 
 export function Workbench() {
@@ -166,12 +172,14 @@ export function Workbench() {
   const notesForMain = useWorkbench((state) => state.notesForMain)
   const toast = useWorkbench((state) => state.toast)
   const treeId = useWorkbench((state) => state.treeId)
+  const treeTitle = useWorkbench((state) => state.treeTitle)
   const subdocPanelTab = useWorkbench((state) => state.subdocPanelTab)
   const subdocTabs = useWorkbench((state) => state.subdocTabs)
   const [mobilePanel, setMobilePanel] = useState<WorkbenchPanel>('main')
   const [treeDrawerOpen, setTreeDrawerOpen] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSessionMap, setShowSessionMap] = useState(false)
   const [toastPaused, setToastPaused] = useState(false)
   const [portalRoot, setPortalRoot] = useState<HTMLDivElement | null>(null)
   const { leftWidth, resizeSide, rightWidth, startDrag, resetSide } = useColumnResize()
@@ -309,18 +317,18 @@ export function Workbench() {
         onClick={openTreeDrawer}
         type="button"
       >
-        打开树导航
+        打开笔记库
       </button>
-      {treeDrawerOpen && <button aria-label="关闭树导航" className="tree-drawer-backdrop" onClick={closeTreeDrawer} type="button" />}
+      {treeDrawerOpen && <button aria-label="关闭笔记库导航" className="tree-drawer-backdrop" onClick={closeTreeDrawer} type="button" />}
       <aside
         aria-hidden={focusMode || undefined}
-        aria-label="树导航"
+        aria-label="笔记库导航"
         className={`tree-panel${focusMode ? ' is-collapsed' : ''}${treeDrawerOpen ? ' is-drawer-open' : ''}`}
         data-testid="tree-panel"
         id="tree-workbench-panel"
       >
-        <button aria-label="关闭树导航" className="tree-drawer-close" onClick={closeTreeDrawer} ref={drawerCloseRef} type="button">×</button>
-        <h1>树形对话工作台</h1>
+        <button aria-label="关闭笔记库导航" className="tree-drawer-close" onClick={closeTreeDrawer} ref={drawerCloseRef} type="button"><Icon name="close" /></button>
+        <h1>本地笔记</h1>
         <TreeLauncher />
         <TreePanel
           key={treeId ?? 'no-tree'}
@@ -339,7 +347,7 @@ export function Workbench() {
       {!focusMode && (
         <div
           aria-orientation="vertical"
-          aria-label="调整树导航宽度"
+          aria-label="调整笔记库导航宽度"
           aria-valuemax={getColumnMaxWidth('left')}
           aria-valuemin={COLUMN_MIN_WIDTHS.left}
           aria-valuenow={Math.round(leftWidth)}
@@ -357,16 +365,21 @@ export function Workbench() {
         <Breadcrumb />
         <header className="panel-header">
           <div className="main-panel-title">
-            <span className="eyebrow">主文档</span>
+            <span className="eyebrow">笔记</span>
             <MainQuestionSummary
               contentId="main-document-question"
-              text={nodeLabel(mainNodeId, nodesById)}
+              text={nodeLabel(mainNodeId, nodesById, treeTitle)}
             />
           </div>
           <div className="header-actions">
+            {treeId && (
+              <button className="quiet-button" onClick={() => setShowSessionMap(true)} type="button">
+                <Icon name="map" />会话地图
+              </button>
+            )}
             {mainNodeId && (
               <button className="quiet-button" onClick={() => setShowVersions((shown) => !shown)} type="button">
-                {showVersions ? '收起版本' : '版本历史'}
+                <Icon name="history" />{showVersions ? '收起版本' : '版本历史'}
               </button>
             )}
             <SharePanel disabled={!mainNodeId} nodeId={mainNodeId} portal={portalRoot} />
@@ -379,10 +392,10 @@ export function Workbench() {
               }}
               type="button"
             >
-              {focusMode ? '退出聚焦' : '沉浸聚焦'}
+              <Icon name="focus" />{focusMode ? '退出聚焦' : '沉浸聚焦'}
             </button>
             <button className="quiet-button" onClick={() => setShowSettings((shown) => !shown)} type="button">
-              {showSettings ? '收起设置' : '设置'}
+              <Icon name="settings" />{showSettings ? '收起设置' : '设置'}
             </button>
           </div>
         </header>
@@ -390,11 +403,12 @@ export function Workbench() {
         {showVersions && mainNodeId && <VersionPanel nodeId={mainNodeId} />}
         <MainDoc />
       </main>
+      {showSessionMap && treeId && <SessionMap onClose={() => setShowSessionMap(false)} />}
 
       {!focusMode && (
         <div
           aria-orientation="vertical"
-          aria-label="调整子文档宽度"
+          aria-label="调整关联内容宽度"
           aria-valuemax={getColumnMaxWidth('right')}
           aria-valuemin={COLUMN_MIN_WIDTHS.right}
           aria-valuenow={Math.round(rightWidth)}
@@ -410,7 +424,7 @@ export function Workbench() {
 
       <section
         aria-hidden={focusMode || undefined}
-        aria-label="子文档"
+        aria-label="关联内容"
         className={`subdoc-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="subdoc-panel"
         id="subdoc-workbench-panel"
@@ -418,7 +432,7 @@ export function Workbench() {
       >
         <header className="panel-header">
           <div>
-            <span className="eyebrow">子文档</span>
+            <span className="eyebrow">关联内容</span>
           </div>
         </header>
         <div className="subdoc-panel-content">
@@ -439,10 +453,10 @@ export function Workbench() {
           onMouseLeave={() => setToastPaused(false)}
           role={typeof toast !== 'string' && toast.variant === 'error' ? 'alert' : 'status'}
         >
-          <span aria-hidden="true" className="toast-icon">{typeof toast === 'string' ? 'i' : toast.variant === 'error' ? '!' : toast.variant === 'success' ? '✓' : 'i'}</span>
+          <span aria-hidden="true" className="toast-icon"><Icon name={typeof toast !== 'string' && toast.variant === 'error' ? 'alert' : typeof toast !== 'string' && toast.variant === 'success' ? 'check' : 'info'} size={15} /></span>
           <span>{typeof toast === 'string' ? toast : toast.message}</span>
           {typeof toast !== 'string' && toast.action && <button onClick={toast.action.onClick} type="button">{toast.action.label}</button>}
-          <button aria-label="关闭提示" onClick={() => useWorkbench.getState().clearToast()} type="button">×</button>
+          <button aria-label="关闭提示" onClick={() => useWorkbench.getState().clearToast()} type="button"><Icon name="close" size={14} /></button>
         </div>
       )}
     </div>

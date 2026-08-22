@@ -57,7 +57,7 @@ export function assembleContext(
       if (resolved.userInput) {
         messages.push({ content: resolved.userInput, role: 'user' })
       }
-      const answer = prosemirrorToPlainText(resolved.aiResponse)
+      const answer = prosemirrorToPlainText(resolved.documentContent)
       if (answer) messages.push({ content: answer, role: 'assistant' })
       continue
     }

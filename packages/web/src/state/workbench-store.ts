@@ -1,4 +1,4 @@
-import type { AnnotationRow, NodeRow, NodeVersionRow } from '@vibe/shared'
+import type { AnnotationRow, MergeRow, NodeRow, NodeVersionRow } from '@vibe/shared'
 import { useSyncExternalStore } from 'react'
 import type { RouteConvergence } from '../api/types'
 
@@ -281,8 +281,11 @@ interface WorkbenchData {
   subdocPanelTab: SubdocPanelTab
   subdocTabs: string[]
   toast: string | ToastNotice | null
+  treeAnnotations: AnnotationRow[]
+  treeMerges: MergeRow[]
   trash: NodeRow[]
   treeId: string | null
+  treeTitle: string | null
   unreadNodeIds: string[]
   versionsByNodeId: Record<string, NodeVersionRow[]>
 }
@@ -294,9 +297,12 @@ export interface WorkbenchState extends WorkbenchData {
   goBack(): void
   goForward(): void
   loadTree(input: {
+    annotations?: AnnotationRow[]
+    merges?: MergeRow[]
     nodes: NodeRow[]
     rootNodeId: string
     treeId: string
+    treeTitle?: string | null
   }): void
   markNodeRead(nodeId: string): void
   openSubdocTab(nodeId: string): void
@@ -314,6 +320,8 @@ export interface WorkbenchState extends WorkbenchData {
   setSubtreeDeleted(nodeId: string, deleted: boolean): void
   setToast(message: string | ToastNotice): void
   setTrash(nodes: NodeRow[]): void
+  setTreeGraph(input: { annotations?: AnnotationRow[]; merges?: MergeRow[] }): void
+  setTreeTitle(title: string): void
   setVersions(nodeId: string, versions: NodeVersionRow[]): void
   toggleFocus(): void
   upsertNode(node: NodeRow, options?: { refreshSubdocTabs?: boolean }): void
@@ -343,8 +351,11 @@ function initialData(): WorkbenchData {
     subdocPanelTab: 'derivations',
     subdocTabs: [],
     toast: null,
+    treeAnnotations: [],
+    treeMerges: [],
     trash: [],
     treeId: null,
+    treeTitle: null,
     unreadNodeIds: [],
     versionsByNodeId: {},
   }
@@ -448,7 +459,10 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
       nodesById,
       rootNodeId: input.rootNodeId,
       subdocTabs: computeChildTabs(nodesById, input.rootNodeId),
+      treeAnnotations: input.annotations ? [...input.annotations] : [],
       treeId: input.treeId,
+      treeMerges: input.merges ? [...input.merges] : [],
+      treeTitle: input.treeTitle?.trim() || null,
       unreadNodeIds: withoutNode(loadUnread(input.treeId, nodesById), input.rootNodeId),
     })
   },
@@ -561,6 +575,15 @@ const actions: Omit<WorkbenchState, keyof WorkbenchData> = {
   },
   setTrash(nodes) {
     patch({ trash: [...nodes] })
+  },
+  setTreeTitle(title) {
+    patch({ treeTitle: title.trim() || null })
+  },
+  setTreeGraph(input) {
+    patch({
+      treeAnnotations: input.annotations ? [...input.annotations] : state.treeAnnotations,
+      treeMerges: input.merges ? [...input.merges] : state.treeMerges,
+    })
   },
   setVersions(nodeId, versions) {
     patch({

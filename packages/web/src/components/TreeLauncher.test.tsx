@@ -20,9 +20,10 @@ describe('TreeLauncher', () => {
     }
     render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
     fireEvent.change(screen.getByLabelText('new-tree-title'), { target: { value: '缓存' } })
-    fireEvent.click(screen.getByRole('button', { name: '新建树' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记库' }))
     await waitFor(() => expect(useWorkbench.getState().mainNodeId).toBe('root'))
     expect(api.createTree).toHaveBeenCalledWith('缓存')
+    expect(useWorkbench.getState().treeTitle).toBe('缓存')
   })
 
   it('opens an existing tree through getTree', async () => {
@@ -34,6 +35,7 @@ describe('TreeLauncher', () => {
     fireEvent.click(await screen.findByRole('button', { name: '已有树' }))
     await waitFor(() => expect(api.getTree).toHaveBeenCalledWith('t1'))
     expect(useWorkbench.getState().treeId).toBe('t1')
+    expect(useWorkbench.getState().treeTitle).toBe('已有树')
   })
 
   it('deletes a tree from the list after confirming', async () => {
@@ -45,7 +47,7 @@ describe('TreeLauncher', () => {
     await screen.findByRole('button', { name: '要删的树' })
     fireEvent.click(screen.getByRole('button', { name: '删除“要删的树”' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
-    expect(dialog).toHaveTextContent('将删除树“要删的树”，可在回收站恢复。')
+    expect(dialog).toHaveTextContent('将删除笔记库“要删的树”，可在回收站恢复。')
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(api.deleteTree).toHaveBeenCalledWith('t1'))
     await waitFor(() => expect(screen.queryByRole('button', { name: '要删的树' })).toBeNull())
@@ -64,7 +66,7 @@ describe('TreeLauncher', () => {
     const dialog = screen.getByRole('alertdialog', { name: '确认删除' })
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('删除树失败，请稍后重试。')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('删除笔记库失败，请稍后重试。')
     expect(screen.getByRole('button', { name: '删不掉的树' })).toBeInTheDocument()
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   })
@@ -84,12 +86,12 @@ describe('TreeLauncher', () => {
     expect(await screen.findByRole('button', { name: '新名' })).toBeInTheDocument()
   })
 
-  it('hints why 新建树 is disabled when the title is empty', () => {
+  it('hints why 新建笔记库 is disabled when the title is empty', () => {
     const api = { listTrees: vi.fn(async () => ({ trees: [] })) }
     render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
-    const button = screen.getByRole('button', { name: '新建树' })
+    const button = screen.getByRole('button', { name: '新建笔记库' })
     expect(button).toBeDisabled()
-    expect(button).toHaveAttribute('title', '请先输入标题')
+    expect(button).toHaveAttribute('title', '请先输入名称')
   })
 
   it('does not create on Enter during IME composition or when the title is empty', async () => {

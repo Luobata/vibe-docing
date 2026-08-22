@@ -1,4 +1,5 @@
 import type { PastedImage } from '../flow/use-pasted-images'
+import { Icon } from './Icon'
 
 export function ImageThumbs({ images, onRemove }: { images: PastedImage[]; onRemove(id: string): void }) {
   if (images.length === 0) return null
@@ -7,7 +8,7 @@ export function ImageThumbs({ images, onRemove }: { images: PastedImage[]; onRem
       {images.map((image) => (
         <span className="chat-image-thumb" data-testid="chat-image-thumb" key={image.id}>
           <img alt={image.name} src={image.url} />
-          <button aria-label="移除图片" onClick={() => onRemove(image.id)} type="button">×</button>
+          <button aria-label="移除图片" onClick={() => onRemove(image.id)} type="button"><Icon name="close" size={11} /></button>
         </span>
       ))}
     </div>

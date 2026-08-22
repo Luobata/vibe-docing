@@ -1,4 +1,4 @@
-import type { ContextSegmentRow, MergeRow } from '@vibe/shared'
+import { documentContentOf, type ContextSegmentRow, type MergeRow } from '@vibe/shared'
 import { prosemirrorToPlainText } from '../context/prosemirror'
 import type { AppDeps } from '../deps'
 import type { Provider } from '../provider/types'
@@ -30,7 +30,7 @@ export function createMergeService(
     }
 
     const messages = deps.context.assemble(source.id, source.user_input ?? '')
-    const answer = prosemirrorToPlainText(source.ai_response)
+    const answer = prosemirrorToPlainText(documentContentOf(source))
     if (answer) messages.push({ content: answer, role: 'assistant' })
     messages.push({
       content: '请把以上子分支探索提炼成给父节点参考的简明结论。',
@@ -48,6 +48,7 @@ export function createMergeService(
       })
       deps.versions.snapshot({
         aiResponse: target.ai_response,
+        documentContent: documentContentOf(target),
         changeKind: 'merge',
         nodeId: target.id,
         userInput: target.user_input,
@@ -64,4 +65,3 @@ export function createMergeService(
 
   return { merge }
 }
-

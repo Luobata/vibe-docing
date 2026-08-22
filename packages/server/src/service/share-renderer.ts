@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it'
 import {
   buildPublicShareSnapshot,
+  documentContentOf,
   prosemirrorToPlainText,
   prosemirrorToRenderRuns,
   sceneLayout,
@@ -109,7 +110,7 @@ function shareTitle(document: ShareDocument): string {
 function body(document: ShareDocument, node: NodeRow): string {
   const parts: string[] = []
   const input = proseMirrorMarkdown(document, node.user_input)
-  const answer = proseMirrorMarkdown(document, node.ai_response)
+  const answer = proseMirrorMarkdown(document, documentContentOf(node))
   if (input) parts.push(`**提问**\n\n${input}`)
   if (answer) parts.push(`**回答**\n\n${answer}`)
   return parts.join('\n\n')
@@ -174,7 +175,7 @@ export function buildShareJson(document: ShareDocument): PublicShareSnapshot {
     const index = nodes.length
     nodeIndexById.set(node.row.id, index)
     const visualRefs: PublicShareSnapshot['nodes'][number]['visualRefs'] = []
-    for (const source of [node.row.user_input, node.row.ai_response]) {
+    for (const source of [node.row.user_input, documentContentOf(node.row)]) {
       for (const run of prosemirrorToRenderRuns(source)) {
         if (run.type !== 'visual') continue
         const artifact = artifactFor(document, run.reference)
@@ -190,7 +191,7 @@ export function buildShareJson(document: ShareDocument): PublicShareSnapshot {
       }
     }
     nodes.push({ index, depth, parentIndex, title: rawLabel(node.row), inputText: prosemirrorToPlainText(node.row.user_input).trim(),
-      responseText: prosemirrorToPlainText(node.row.ai_response).trim(), visualRefs, status: node.row.status })
+      responseText: prosemirrorToPlainText(documentContentOf(node.row)).trim(), visualRefs, status: node.row.status })
     node.children.forEach((child) => visit(child, depth + 1, index))
   }
   visit(document.root, 0, null)

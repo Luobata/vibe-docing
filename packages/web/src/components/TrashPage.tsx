@@ -46,22 +46,22 @@ export function TrashPage({ onBack, treeId }: { onBack(): void; treeId: string |
         <div>
           <span className="eyebrow">独立管理</span>
           <h1>回收站</h1>
-          <p>已删除内容不会挤占文档树；可在这里按节点或整棵树恢复。</p>
+          <p>已删除内容不会出现在笔记导航中；可以在这里恢复单篇笔记或整个笔记库。</p>
         </div>
         <button className="quiet-button" onClick={onBack} type="button">返回工作台</button>
       </header>
       {loading ? <p aria-live="polite">正在加载回收站…</p> : (
         <div className="trash-page-grid">
           <section aria-labelledby="deleted-nodes-title" className="trash-section">
-            <header><h2 id="deleted-nodes-title">当前树的节点</h2><span>{nodes.length}</span></header>
-            {nodes.length === 0 ? <p className="empty-state">没有已删除节点</p> : (
-              <ul>{nodes.map((node) => <li key={node.id}><div><strong>{nodeTitle(node)}</strong><span>节点内容</span></div><button onClick={() => { void restoreNode(node) }} type="button">恢复</button></li>)}</ul>
+            <header><h2 id="deleted-nodes-title">当前笔记库中的内容</h2><span>{nodes.length}</span></header>
+            {nodes.length === 0 ? <p className="empty-state">没有已删除的笔记</p> : (
+              <ul>{nodes.map((node) => <li key={node.id}><div><strong>{nodeTitle(node)}</strong><span>单篇笔记</span></div><button onClick={() => { void restoreNode(node) }} type="button">恢复</button></li>)}</ul>
             )}
           </section>
           <section aria-labelledby="deleted-trees-title" className="trash-section">
-            <header><h2 id="deleted-trees-title">已删除的树</h2><span>{trees.length}</span></header>
-            {trees.length === 0 ? <p className="empty-state">没有已删除的树</p> : (
-              <ul>{trees.map((tree) => <li key={tree.id}><div><strong>{tree.title}</strong><span>整棵树</span></div><button onClick={() => { void restoreTree(tree) }} type="button">恢复</button></li>)}</ul>
+            <header><h2 id="deleted-trees-title">已删除的笔记库</h2><span>{trees.length}</span></header>
+            {trees.length === 0 ? <p className="empty-state">没有已删除的笔记库</p> : (
+              <ul>{trees.map((tree) => <li key={tree.id}><div><strong>{tree.title}</strong><span>整个笔记库</span></div><button onClick={() => { void restoreTree(tree) }} type="button">恢复</button></li>)}</ul>
             )}
           </section>
         </div>

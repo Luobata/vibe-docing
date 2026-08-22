@@ -6,6 +6,6 @@ describe('App', () => {
   it('renders title', () => {
     render(<App api={{ listTrees: () => new Promise(() => {}) } as never} />)
 
-    expect(screen.getByText('树形对话工作台')).toBeInTheDocument()
+    expect(screen.getByText('本地笔记')).toBeInTheDocument()
   })
 })

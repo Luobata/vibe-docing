@@ -1,4 +1,5 @@
 import {
+  documentContentOf,
   plainTextToProseMirror,
   type AnnotationRow,
   type ContextSegmentRow,
@@ -27,6 +28,7 @@ import { AnnotationBubble } from './AnnotationBubble'
 import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { DocView } from './DocView'
+import { DocumentEditor, type DocumentEditorHandle } from '../editor/DocumentEditor'
 import { MergedConclusions } from './MergedConclusions'
 import { QuestionEditor } from './QuestionEditor'
 import { RouteErrorNotice, RoutePrompt } from './RoutePrompt'
@@ -83,6 +85,11 @@ function currentTask(task: GenerationTask): GenerationTask | undefined {
   return current?.runId === task.runId ? current : undefined
 }
 
+function generatedContent(text: string): Pick<NodeRow, 'ai_response' | 'document_content'> {
+  const content = plainTextToProseMirror(text)
+  return { ai_response: content, document_content: content }
+}
+
 export function MainDoc() {
   const api = useApi()
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
@@ -110,10 +117,11 @@ export function MainDoc() {
   const [routeError, setRouteError] = useState<string | null>(null)
   const [parentContext, setParentContext] = useState<ParentContext | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const documentEditorRef = useRef<DocumentEditorHandle>(null)
   const latestAnswer = transcript.length > 0
     ? (nodesById[transcript[transcript.length - 1].id] ?? transcript[transcript.length - 1].answer)
     : null
-  const streamSignature = transcript.length + ':' + (latestAnswer?.ai_response?.length ?? 0)
+  const streamSignature = transcript.length + ':' + (latestAnswer ? documentContentOf(latestAnswer)?.length ?? 0 : 0)
   const { scrollToBottom, showButton } = useAutoScroll(scrollRef, streamSignature)
 
   useEffect(() => {
@@ -201,7 +209,7 @@ export function MainDoc() {
     return () => clearTimeout(timer)
   }, [annotations, focusedAnnotationId])
 
-  if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入标题并新建一棵树，选中节点后即可在下方对话生成内容</div>
+  if (!mainNodeId) return <div className="document-placeholder" data-testid="main-doc-empty">← 先在左上角输入名称并新建笔记库，选中笔记后即可直接写作，或在下方对话让 AI 生成内容</div>
   const node = nodesById[mainNodeId]
   if (!node) return <div className="inline-error" role="alert">当前文档不存在</div>
 
@@ -264,7 +272,12 @@ export function MainDoc() {
     generationTaskRegistry.settle(task, 'cancelled')
   }
 
+  async function flushDocument(): Promise<void> {
+    await documentEditorRef.current?.flush()
+  }
+
   async function forkExpand(question: string): Promise<void> {
+    await flushDocument()
     if (!selection || !treeId) return
     const capturedSelection = selection
     const key = generationTaskKeys.forkExpand(
@@ -281,7 +294,7 @@ export function MainDoc() {
         if (!childNode) return
         useWorkbench.getState().upsertNode({
           ...childNode,
-          ai_response: plainTextToProseMirror(text),
+          ...generatedContent(text),
           status: 'cancelled',
           user_input: question,
         })
@@ -306,7 +319,7 @@ export function MainDoc() {
       }
       const streamingNode: NodeRow = {
         ...childNode,
-        ai_response: plainTextToProseMirror(''),
+        ...generatedContent(''),
         status: 'streaming',
         user_input: question,
       }
@@ -335,7 +348,7 @@ export function MainDoc() {
           text += chunk
           updateTaskNode(task, childNode.id, {
             ...childNode,
-            ai_response: plainTextToProseMirror(text),
+            ...generatedContent(text),
             status: 'streaming',
             user_input: question,
           })
@@ -349,7 +362,7 @@ export function MainDoc() {
           const readable = humanize(message)
           updateTaskNode(task, childNode.id, {
             ...childNode,
-            ai_response: plainTextToProseMirror(text),
+            ...generatedContent(text),
             status: 'error',
             user_input: question,
           })
@@ -357,10 +370,10 @@ export function MainDoc() {
         },
       }, task.controller.signal)
       if (generationTaskRegistry.isTaskLive(task) && childNode) {
-        const readable = '模型未返回完成状态，当前分支已保留，可单独重试。'
+        const readable = 'AI 未返回完成状态，当前关联内容已保留，可单独重试。'
         updateTaskNode(task, childNode.id, {
           ...childNode,
-          ai_response: plainTextToProseMirror(text),
+          ...generatedContent(text),
           status: 'error',
           user_input: question,
         })
@@ -378,7 +391,7 @@ export function MainDoc() {
         if (childNode) {
           updateTaskNode(task, childNode.id, {
             ...childNode,
-            ai_response: plainTextToProseMirror(text),
+            ...generatedContent(text),
             status: 'error',
             user_input: question,
           })
@@ -483,7 +496,7 @@ export function MainDoc() {
         text += chunk
         currentNode = {
           ...baseNode,
-          ai_response: plainTextToProseMirror(text),
+          ...generatedContent(text),
           status: 'streaming',
           user_input: question,
         }
@@ -538,7 +551,7 @@ export function MainDoc() {
     task.controller.signal.throwIfAborted()
     currentNode = {
       ...prepared.node,
-      ai_response: plainTextToProseMirror(''),
+      ...generatedContent(''),
       status: 'streaming',
       user_input: question,
     }
@@ -553,7 +566,7 @@ export function MainDoc() {
         text += chunk
         currentNode = {
           ...prepared.node,
-          ai_response: plainTextToProseMirror(text),
+          ...generatedContent(text),
           status: 'streaming',
           user_input: question,
         }
@@ -586,8 +599,9 @@ export function MainDoc() {
   }
 
   async function ask(question: string): Promise<void> {
+    await flushDocument()
     if (!treeId) return
-    const currentIsEmpty = !node.user_input && !node.ai_response
+    const currentIsEmpty = !node.user_input && !documentContentOf(node)
     let cancelledNode: NodeRow | null = currentIsEmpty ? node : null
     let cancelledTurnId: string | null = null
     const task = startTask({
@@ -635,7 +649,7 @@ export function MainDoc() {
       if (!generationTaskRegistry.setTarget(task, answerId)) throw new Error('目标节点已有生成任务')
       const streamingNode: NodeRow = {
         ...prepared.node,
-        ai_response: plainTextToProseMirror(''),
+        ...generatedContent(''),
         status: 'streaming',
         user_input: question,
       }
@@ -739,6 +753,7 @@ export function MainDoc() {
   }
 
   async function editMainQuestion(next: string): Promise<void> {
+    await flushDocument()
     let currentNode = node
     const task = startTask({
       key: generationTaskKeys.edit(node.id),
@@ -789,7 +804,7 @@ export function MainDoc() {
       task.controller.signal.throwIfAborted()
       currentNode = {
         ...prepared.node,
-        ai_response: plainTextToProseMirror(''),
+        ...generatedContent(''),
         status: 'streaming',
         user_input: next,
       }
@@ -815,6 +830,7 @@ export function MainDoc() {
   }
 
   async function retryCurrent(): Promise<void> {
+    await flushDocument()
     const question = node.user_input?.trim()
     if (!question) return
     let currentNode = node
@@ -841,7 +857,7 @@ export function MainDoc() {
           text += chunk
           currentNode = {
             ...node,
-            ai_response: plainTextToProseMirror(text),
+            ...generatedContent(text),
             status: 'streaming',
           }
           updateTaskNode(task, node.id, currentNode)
@@ -865,7 +881,7 @@ export function MainDoc() {
     } catch (cause) {
       if (isAbortError(cause, task.controller.signal)) settleCancelled(task)
       else if (generationTaskRegistry.isTaskLive(task)) {
-        const readable = '重试失败，请检查 Provider 设置。'
+        const readable = '重试失败，请检查高级设置中的 AI 服务商。'
         updateTaskNode(task, node.id, { ...currentNode, status: 'error' })
         generationTaskRegistry.settle(task, 'error', readable)
       }
@@ -876,11 +892,11 @@ export function MainDoc() {
     <div className="main-doc-content">
       <div className="main-doc-scroll" data-testid="conversation-scroll" ref={scrollRef}>
         {parentContext && (
-          <aside className="parent-context" aria-label="派生来源">
-            <div className="parent-context-label">派生自</div>
+          <aside className="parent-context" aria-label="关联来源">
+            <div className="parent-context-label">基于</div>
             <div className="parent-context-copy">
               <strong>{parentContext.node.user_input?.split('\n')[0]?.trim() || '父文档'}</strong>
-              <span>{parentContext.annotation?.quoted_text || parentContext.sourceText || '基于父文档上下文展开'}</span>
+              <span>{parentContext.annotation?.quoted_text || parentContext.sourceText || '基于来源笔记的上下文展开'}</span>
             </div>
             <button
               className="quiet-button"
@@ -904,19 +920,21 @@ export function MainDoc() {
             </button>
           </aside>
         )}
-        <section aria-label="主对话轮次" className="turn-card">
-          <div className="turn-badge"><span className="turn-badge-dot" />第 1 轮</div>
+        <section aria-label="文档正文" className="document-sheet">
           {node.user_input && (
-            <QuestionEditor
-              disabled={Boolean(nodeTask && nodeTask.status === 'streaming')}
-              onResubmit={editMainQuestion}
-              question={node.user_input}
-            />
+            <details className="document-source">
+              <summary>生成来源</summary>
+              <QuestionEditor
+                disabled={Boolean(nodeTask && nodeTask.status === 'streaming')}
+                onResubmit={editMainQuestion}
+                question={node.user_input}
+              />
+            </details>
           )}
-          <DocView
+          <DocumentEditor
             annotations={annotations}
+            disabled={Boolean(nodeTask && nodeTask.status === 'streaming')}
             errorText={nodeTask?.error ?? undefined}
-            generationTaskKey={nodeTask?.key}
             node={node}
             onAnchorClick={(annId) => {
               const target = pickAnchorTarget(annotations, annId, (childId) => {
@@ -939,6 +957,9 @@ export function MainDoc() {
               setMenu({ x, y })
             }}
             onRetry={() => { void retryCurrent() }}
+            onSaved={(savedNode) => {
+              useWorkbench.getState().upsertNode(savedNode)
+            }}
             onSelect={(nextSelection) => {
               setVisualTarget(null)
               setSelection(nextSelection)
@@ -949,8 +970,7 @@ export function MainDoc() {
               setMenu(null)
               setBubbleMode('note')
             }}
-            retryDisabled={Boolean(nodeTask && nodeTask.status === 'streaming')}
-            retryTaskKey={generationTaskKeys.retry(node.id)}
+            ref={documentEditorRef}
           />
           <MergedConclusions segments={segments} />
         </section>
@@ -1044,6 +1064,10 @@ export function MainDoc() {
         </button>
       )}
       <div className="composer">
+        <div className="composer-title">
+          <strong>AI 辅助</strong>
+          <span>基于当前笔记继续提问，正文仍由你决定</span>
+        </div>
         {mainLineTasks.map((task) => (
           <AssistantStatus
             key={`${task.key}:${task.runId}`}

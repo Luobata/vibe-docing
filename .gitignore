@@ -9,3 +9,4 @@ midscene_run/
 vibe*.db
 vibe*.db-shm
 vibe*.db-wal
+vault/

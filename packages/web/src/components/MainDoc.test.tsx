@@ -84,7 +84,7 @@ describe('MainDoc fork flow', () => {
     useWorkbench.getState().setMain('child')
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
-    const context = await screen.findByLabelText('派生来源')
+    const context = await screen.findByLabelText('关联来源')
     expect(context).toHaveTextContent('Memory 架构')
     expect(context).toHaveTextContent('MemoryScope 增加 roleId')
     fireEvent.click(within(context).getByRole('button', { name: '返回来源' }))
@@ -114,7 +114,7 @@ describe('MainDoc fork flow', () => {
     useWorkbench.getState().setMain('child')
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
-    expect(await screen.findByLabelText('派生来源')).toHaveTextContent('MemoryScope 增加 roleId')
+    expect(await screen.findByLabelText('关联来源')).toHaveTextContent('MemoryScope 增加 roleId')
   })
 
   it('returns a whole-document child to the global derivation tab without a false anchor', async () => {
@@ -133,7 +133,7 @@ describe('MainDoc fork flow', () => {
     useWorkbench.getState().setMain('child')
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
-    const context = await screen.findByLabelText('派生来源')
+    const context = await screen.findByLabelText('关联来源')
     fireEvent.click(within(context).getByRole('button', { name: '返回来源' }))
     expect(useWorkbench.getState().mainNodeId).toBe('root')
     expect(useWorkbench.getState().subdocPanelTab).toBe('global')
@@ -594,7 +594,7 @@ describe('MainDoc fork flow', () => {
 
     // edit the turn's question in place and save → regenerate that turn
     const turn = screen.getByRole('region', { name: '对话轮次' })
-    fireEvent.click(within(turn).getByLabelText('编辑问题'))
+    fireEvent.click(within(turn).getByLabelText('编辑问题并重新生成'))
     fireEvent.change(within(turn).getByLabelText('edit-question'), { target: { value: '改后的轮次问题' } })
     fireEvent.click(within(turn).getByRole('button', { name: '保存并重新生成' }))
 
@@ -627,7 +627,7 @@ describe('MainDoc fork flow', () => {
     const turn = await screen.findByRole('region', { name: '对话轮次' })
     await waitFor(() => expect(screen.getByLabelText('chat-input')).not.toBeDisabled())
 
-    fireEvent.click(within(turn).getByLabelText('编辑问题'))
+    fireEvent.click(within(turn).getByLabelText('编辑问题并重新生成'))
     const editor = within(turn).getByLabelText('edit-question')
     fireEvent.change(editor, { target: { value: '保留这个修改' } })
     pasteImage(editor, 'turn.png')
@@ -674,7 +674,7 @@ describe('MainDoc fork flow', () => {
 
     // edit the FIRST (non-last) turn's question
     const firstTurn = screen.getAllByRole('region', { name: '对话轮次' })[0]
-    fireEvent.click(within(firstTurn).getByLabelText('编辑问题'))
+    fireEvent.click(within(firstTurn).getByLabelText('编辑问题并重新生成'))
     fireEvent.change(within(firstTurn).getByLabelText('edit-question'), { target: { value: '改后的第一问' } })
     fireEvent.click(within(firstTurn).getByRole('button', { name: '保存并重新生成' }))
     await waitFor(() => expect(streamAnswer).toHaveBeenCalledWith('answer1', '改后的第一问', expect.anything(), expect.any(AbortSignal)))
@@ -822,8 +822,8 @@ describe('MainDoc fork flow', () => {
     })
     useWorkbench.getState().loadTree({ nodes: [node('root', null)], rootNodeId: 'root', treeId: 't' })
     render(<ApiProvider api={{ getNode: async () => ({ node: node('root', null), annotations: [], segments: [] }), editNode, streamAnswer } as never}><MainDoc /></ApiProvider>)
-    await waitFor(() => screen.getByLabelText('编辑问题'))
-    fireEvent.click(screen.getByLabelText('编辑问题'))
+    await waitFor(() => screen.getByLabelText('编辑问题并重新生成'))
+    fireEvent.click(screen.getByLabelText('编辑问题并重新生成'))
     fireEvent.change(screen.getByLabelText('edit-question'), { target: { value: '改后的主问题' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并重新生成' }))
     await waitFor(() => expect(editNode).toHaveBeenCalledWith('root', { userInput: '改后的主问题' }))
@@ -839,7 +839,7 @@ describe('MainDoc fork flow', () => {
     useWorkbench.getState().loadTree({ nodes: [root], rootNodeId: 'root', treeId: 't' })
     render(<ApiProvider api={api as never}><MainDoc /></ApiProvider>)
 
-    fireEvent.click(screen.getByLabelText('编辑问题'))
+    fireEvent.click(screen.getByLabelText('编辑问题并重新生成'))
     const editor = screen.getByLabelText('edit-question')
     fireEvent.change(editor, { target: { value: '主问题修改要保留' } })
     pasteImage(editor, 'main-question.png')

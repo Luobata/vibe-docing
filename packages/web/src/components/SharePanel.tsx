@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useApi } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
+import { Icon } from './Icon'
 
 type Phase = 'loading' | 'unshared' | 'creating' | 'shared' | 'copy-error' | 'create-error' | 'closing' | 'close-error' | 'closed'
 
@@ -19,6 +20,7 @@ export function SharePanel({ disabled, nodeId, portal }: { disabled: boolean; no
   const cancelRef = useRef<HTMLButtonElement>(null)
   const nodeIdRef = useRef(nodeId)
   nodeIdRef.current = nodeId
+  const localOnly = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
 
   const closeConfirm = () => {
     const dialog = dialogRef.current
@@ -79,7 +81,7 @@ export function SharePanel({ disabled, nodeId, portal }: { disabled: boolean; no
     try {
       await navigator.clipboard.writeText(url)
       setPhase('shared')
-      useWorkbench.getState().setToast({ message: '分享链接已复制', variant: 'success', live: 'polite' })
+      useWorkbench.getState().setToast({ message: localOnly ? '本机访问链接已复制' : '分享链接已复制', variant: 'success', live: 'polite' })
     } catch {
       setPhase('copy-error'); inputRef.current?.focus(); inputRef.current?.select()
     }
@@ -104,15 +106,16 @@ export function SharePanel({ disabled, nodeId, portal }: { disabled: boolean; no
   }
 
   return <>
-    <button aria-expanded={open} className="quiet-button" disabled={disabled} onClick={() => setOpen((value) => !value)} ref={triggerRef} title={disabled ? '请先打开主文档后再分享' : '分享当前文档'} type="button">分享</button>
-    {open && portal && createPortal(<div aria-label="文档分享" className="share-panel" ref={panelRef} role="region" style={position}>
-      <div className="share-panel-heading"><strong>文档分享</strong><button aria-label="关闭分享面板" onClick={closePanel} type="button">×</button></div>
-      {share && ['shared','copy-error','closing','close-error'].includes(phase) && <p className="share-ai-links">AI 读取：<a href={share.markdownUrl}>Markdown</a> · <a href={share.jsonUrl}>JSON</a></p>}
+    <button aria-expanded={open} className="quiet-button" disabled={disabled} onClick={() => setOpen((value) => !value)} ref={triggerRef} title={disabled ? '请先打开主文档后再分享' : '分享当前文档'} type="button"><Icon name="share" />分享</button>
+    {open && portal && createPortal(<div aria-label="分享当前笔记" className="share-panel" ref={panelRef} role="region" style={position}>
+      <div className="share-panel-heading"><strong>分享当前笔记</strong><button aria-label="关闭分享面板" onClick={closePanel} type="button"><Icon name="close" /></button></div>
+      {localOnly && <p className="share-local-notice"><strong>仅限本机访问</strong><span>只有这台电脑在应用运行时能打开链接，并未发布到互联网。</span></p>}
+      {share && ['shared','copy-error','closing','close-error'].includes(phase) && <details className="share-machine-links"><summary>给 AI 或其他工具读取（高级）</summary><p className="share-ai-links"><a href={share.markdownUrl}>Markdown</a> · <a href={share.jsonUrl}>JSON</a></p></details>}
       {phase === 'loading' && <p role="status">正在读取分享状态…</p>}
-      {(phase === 'unshared' || phase === 'create-error') && <><p>分享当前文档及其派生内容，内容会随源文档更新。</p>{phase === 'create-error' && <p className="share-error" role="alert">读取或创建失败，请重试。</p>}<button className="primary-button" onClick={create} type="button">{phase === 'create-error' ? '重试' : '创建分享链接'}</button></>}
+      {(phase === 'unshared' || phase === 'create-error') && <><p>创建当前笔记及其关联内容的只读链接；源笔记更新后，链接内容也会更新。</p>{phase === 'create-error' && <p className="share-error" role="alert">读取或创建失败，请重试。</p>}<button className="primary-button" onClick={create} type="button">{phase === 'create-error' ? '重试' : localOnly ? '创建本机访问链接' : '创建分享链接'}</button></>}
       {phase === 'creating' && <button className="primary-button" disabled type="button">正在创建…</button>}
-      {share && ['shared','copy-error','closing','close-error'].includes(phase) && <><label htmlFor="share-url">分享链接</label><input id="share-url" onFocus={(event) => event.currentTarget.select()} readOnly ref={inputRef} value={`${window.location.origin}${share.url}`} />{phase === 'copy-error' && <p className="share-error" role="alert">无法访问剪贴板，链接已全选，请手动复制。</p>}{phase === 'close-error' && <p className="share-error" role="alert">关闭失败，原链接仍然有效。请重试。</p>}<div className="share-actions"><button disabled={phase === 'closing'} onClick={copy} type="button">复制链接</button><button disabled={phase === 'closing'} onClick={confirmClose} type="button">{phase === 'close-error' ? '重试关闭' : '关闭分享'}</button></div></>}
-      {phase === 'closed' && <><p role="status">分享已关闭，旧链接已失效。</p><button onClick={create} type="button">重新开启</button></>}
+      {share && ['shared','copy-error','closing','close-error'].includes(phase) && <><label htmlFor="share-url">{localOnly ? '本机访问链接' : '分享链接'}</label><input id="share-url" onFocus={(event) => event.currentTarget.select()} readOnly ref={inputRef} value={`${window.location.origin}${share.url}`} />{phase === 'copy-error' && <p className="share-error" role="alert">无法访问剪贴板，链接已全选，请手动复制。</p>}{phase === 'close-error' && <p className="share-error" role="alert">关闭失败，原链接仍然有效。请重试。</p>}<div className="share-actions"><button disabled={phase === 'closing'} onClick={copy} type="button">复制链接</button><button disabled={phase === 'closing'} onClick={confirmClose} type="button">{phase === 'close-error' ? '重试关闭' : '关闭分享'}</button></div></>}
+      {phase === 'closed' && <><p role="status">分享已关闭，旧链接已失效。</p><button onClick={create} type="button">重新创建链接</button></>}
       <dialog className="share-confirm" onCancel={(event) => { event.preventDefault(); closeConfirm(); triggerRef.current?.focus() }} ref={dialogRef}><h3>关闭分享？</h3><p>关闭后旧链接将立即失效。</p><div><button onClick={closeConfirm} ref={cancelRef} type="button">取消</button><button onClick={revoke} type="button">确认关闭</button></div></dialog>
     </div>, portal)}
   </>

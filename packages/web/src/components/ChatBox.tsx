@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { usePastedImages } from '../flow/use-pasted-images'
 import { useWorkbench } from '../state/workbench-store'
 import { ImageThumbs } from './ImageThumbs'
+import { Icon } from './Icon'
 
 const MAX_HEIGHT = 200
 export const IMAGE_DISCARD_MESSAGE = '图片不会发送给模型，也不会保存。确认后将只提交文字。'
@@ -82,6 +83,18 @@ function ChatBoxComposer({ disabled, mainNodeId, onSubmit }: {
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`
   }, [question])
 
+  // 会话地图「＋ 新建分支」派发 vibe:focus-ask：聚焦提问输入框
+  useEffect(() => {
+    const focusAsk = (): void => {
+      const el = ref.current
+      if (!el) return
+      el.focus()
+      el.scrollIntoView?.({ block: 'nearest' })
+    }
+    window.addEventListener('vibe:focus-ask', focusAsk)
+    return () => window.removeEventListener('vibe:focus-ask', focusAsk)
+  }, [])
+
   async function commit(value: string, discardImages: boolean): Promise<void> {
     setSubmitting(true)
     setSubmitError(null)
@@ -138,12 +151,12 @@ function ChatBoxComposer({ disabled, mainNodeId, onSubmit }: {
           onDrop={handleDrop}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="继续追问…  Enter 发送 / Shift+Enter 换行 · 可粘贴图片"
+          placeholder="让 AI 基于当前笔记继续思考…  Enter 发送 / Shift+Enter 换行"
           ref={ref}
           value={question}
         />
         <button disabled={disabled || submitting || !question.trim()} onClick={submit} type="button">
-          {disabled ? '生成中…' : submitting ? '提交中…' : '发送'}
+          <Icon name="send" size={14} />{disabled ? '生成中…' : submitting ? '提交中…' : '发送'}
         </button>
       </div>
     </div>

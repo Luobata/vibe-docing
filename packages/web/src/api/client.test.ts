@@ -44,6 +44,27 @@ describe('api client', () => {
     )
   })
 
+  it('saves semantic document content with revision metadata', async () => {
+    let request: RequestInit | undefined
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      request = init
+      return new Response(JSON.stringify({
+        content: { doc: { type: 'doc' }, nodeId: 'n1', revision: 4, schemaVersion: 1, updatedAt: 'now' },
+        node: { id: 'n1' },
+      }), { headers: { 'content-type': 'application/json' }, status: 200 })
+    }) as unknown as typeof fetch
+    const api = createApi({ fetchImpl })
+    const body = {
+      baseRevision: 3,
+      doc: { content: [], type: 'doc' },
+      editSessionId: 'session-1',
+      schemaVersion: 1 as const,
+    }
+    const saved = await api.saveDocumentContent('n1', body, { keepalive: true })
+    expect(saved.content.revision).toBe(4)
+    expect(request).toMatchObject({ body: JSON.stringify(body), keepalive: true, method: 'PATCH' })
+  })
+
   it('lists deleted trees and restores a tree with a bodyless POST', async () => {
     const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
       new Response(JSON.stringify(url.endsWith('/restore')

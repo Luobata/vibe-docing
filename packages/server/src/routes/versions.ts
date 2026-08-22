@@ -1,4 +1,5 @@
 import type { DecoratedApp } from '../app'
+import { documentContentOf } from '@vibe/shared'
 import { prosemirrorToPlainText } from '../context/prosemirror'
 import { lineDiff } from '../service/diff'
 
@@ -32,8 +33,8 @@ export function registerVersionRoutes(app: DecoratedApp): void {
     }
     return {
       diff: lineDiff(
-        prosemirrorToPlainText(before.ai_response),
-        prosemirrorToPlainText(after.ai_response),
+        prosemirrorToPlainText(documentContentOf(before)),
+        prosemirrorToPlainText(documentContentOf(after)),
       ),
     }
   })
@@ -52,11 +53,12 @@ export function registerVersionRoutes(app: DecoratedApp): void {
 
     const revert = app.deps.db.transaction(() => {
       const updated = app.deps.nodes.updateContent(node.id, {
-        aiResponse: version.ai_response,
+        documentContent: documentContentOf(version),
         userInput: version.user_input,
       })
       app.deps.versions.snapshot({
         aiResponse: updated.ai_response,
+        documentContent: documentContentOf(updated),
         changeKind: 'edit',
         nodeId: updated.id,
         userInput: updated.user_input,

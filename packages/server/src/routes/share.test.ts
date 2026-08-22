@@ -13,7 +13,7 @@ describe('document sharing', () => {
     const app = buildApp()
     const created = await app.inject({ method: 'POST', url: '/api/trees', payload: { title: 'Shared <Tree>' } })
     const { tree, rootNode } = created.json()
-    app.deps.nodes.updateContent(rootNode.id, { userInput: plainTextToProseMirror('# question'), aiResponse: plainTextToProseMirror('first') })
+    app.deps.nodes.updateGeneration(rootNode.id, { userInput: plainTextToProseMirror('# question'), aiResponse: plainTextToProseMirror('first') })
 
     const first = (await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/share` })).json().share
     const repeated = (await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/share` })).json().share
@@ -30,9 +30,9 @@ describe('document sharing', () => {
     expect(html.body).toContain('AI 读取')
     expect(html.body).not.toContain(tree.id)
 
-    app.deps.nodes.updateContent(rootNode.id, { aiResponse: plainTextToProseMirror('edited live') })
+    app.deps.nodes.updateGeneration(rootNode.id, { aiResponse: plainTextToProseMirror('edited live') })
     const child = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: plainTextToProseMirror('branch') })
-    app.deps.nodes.updateContent(child.id, { aiResponse: plainTextToProseMirror('child answer') })
+    app.deps.nodes.updateGeneration(child.id, { aiResponse: plainTextToProseMirror('child answer') })
     const markdown = await app.inject({ method: 'GET', url: first.markdownUrl })
     expect(markdown.headers['content-type']).toContain('text/markdown')
     expect(markdown.body).toContain('edited live')
@@ -65,18 +65,18 @@ describe('document sharing', () => {
   it('creates distinct parent and child shares with node-scoped subtrees', async () => {
     const app = buildApp()
     const { tree, rootNode } = (await app.inject({ method: 'POST', url: '/api/trees', payload: { title: 'Node scoped' } })).json()
-    app.deps.nodes.updateContent(rootNode.id, {
+    app.deps.nodes.updateGeneration(rootNode.id, {
       userInput: plainTextToProseMirror('parent question'),
       aiResponse: plainTextToProseMirror('parent answer'),
     })
     const child = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: plainTextToProseMirror('child question') })
-    app.deps.nodes.updateContent(child.id, { aiResponse: plainTextToProseMirror('child answer') })
+    app.deps.nodes.updateGeneration(child.id, { aiResponse: plainTextToProseMirror('child answer') })
     const source = app.deps.annotations.create({ nodeId: rootNode.id, kind: 'selection', anchorFrom: 0, anchorTo: 6, quotedText: 'parent', note: '聚焦此处' })
     app.deps.annotations.linkChild(source.id, child.id)
     const grandchild = app.deps.nodes.create({ treeId: tree.id, parentId: child.id, userInput: plainTextToProseMirror('grandchild question') })
-    app.deps.nodes.updateContent(grandchild.id, { aiResponse: plainTextToProseMirror('grandchild answer') })
+    app.deps.nodes.updateGeneration(grandchild.id, { aiResponse: plainTextToProseMirror('grandchild answer') })
     const sibling = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: plainTextToProseMirror('sibling question') })
-    app.deps.nodes.updateContent(sibling.id, { aiResponse: plainTextToProseMirror('sibling answer') })
+    app.deps.nodes.updateGeneration(sibling.id, { aiResponse: plainTextToProseMirror('sibling answer') })
 
     const parentShare = (await app.inject({ method: 'POST', url: `/api/nodes/${rootNode.id}/share` })).json().share
     const childShare = (await app.inject({ method: 'POST', url: `/api/nodes/${child.id}/share` })).json().share
@@ -137,7 +137,7 @@ describe('document sharing', () => {
         { type: 'visual_ref', attrs: { artifactId, revision, altText } },
       ],
     })
-    app.deps.nodes.updateContent(rootNode.id, { aiResponse: response(1, scene.altText) })
+    app.deps.nodes.updateGeneration(rootNode.id, { aiResponse: response(1, scene.altText) })
     const share = (await app.inject({ method: 'POST', url: `/api/trees/${tree.id}/share` })).json().share
 
     const markdown = await app.inject({ method: 'GET', url: share.markdownUrl })
@@ -161,7 +161,7 @@ describe('document sharing', () => {
     expect(html.body).not.toContain(artifactId)
 
     app.deps.visualArtifacts.create({ ...scene, title: 'Canvas 架构 v2', artifactId, revision: 2 })
-    app.deps.nodes.updateContent(rootNode.id, { aiResponse: response(2, scene.altText) })
+    app.deps.nodes.updateGeneration(rootNode.id, { aiResponse: response(2, scene.altText) })
     const latest = await app.inject({ method: 'GET', url: share.markdownUrl })
     expect(latest.body).toContain('"title": "Canvas 架构 v2"')
     expect(latest.body).not.toContain('"title": "Canvas 架构"')

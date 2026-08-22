@@ -1,4 +1,4 @@
-import type { RouteTarget } from '@vibe/shared'
+import { documentContentOf, type RouteTarget } from '@vibe/shared'
 import type { ContextEngine } from '../context/context-engine'
 import { prosemirrorToPlainText } from '../context/prosemirror'
 import type { Provider } from '../provider/types'
@@ -84,7 +84,7 @@ function buildOutline(
   return {
     mainDocument: {
       id: mainNodeId,
-      summary: prosemirrorToPlainText(mainNode?.ai_response ?? null).slice(0, 2_000),
+      summary: prosemirrorToPlainText(mainNode ? documentContentOf(mainNode) : null).slice(0, 2_000),
     },
     segments: annotations.flatMap((annotation) =>
       annotation.quoted_text

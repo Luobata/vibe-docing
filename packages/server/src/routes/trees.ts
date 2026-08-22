@@ -13,10 +13,14 @@ export function registerTreeRoutes(app: DecoratedApp): void {
     if (typeof title !== 'string' || !title.trim()) {
       return reply.code(400).send({ error: 'invalid title' })
     }
-    return app.deps.trees.create(title.trim())
+    const created = app.deps.trees.create(title.trim())
+    return { ...created, rootNode: app.deps.vault.ensureNodeFile(created.rootNode) }
   })
 
-  app.get('/api/trees', async () => ({ trees: app.deps.trees.list() }))
+  app.get('/api/trees', async () => {
+    app.deps.vault.sync()
+    return { trees: app.deps.trees.list() }
+  })
 
   app.get('/api/trees/deleted', async () => ({
     trees: app.deps.trees.listDeleted(),
@@ -60,7 +64,12 @@ export function registerTreeRoutes(app: DecoratedApp): void {
          ORDER BY (parent_id IS NOT NULL) ASC, created_at ASC, sort_order ASC, id ASC`,
       )
       .all(tree.id) as NodeRow[]
-    return { nodes, tree }
+    return {
+      annotations: app.deps.annotations.listByTree(tree.id),
+      merges: app.deps.merges.listByTree(tree.id),
+      nodes: nodes.map(app.deps.vault.hydrateNode),
+      tree,
+    }
   })
 
   app.get('/api/nodes/:id/path', async (request, reply) => {
@@ -79,9 +88,10 @@ export function registerTreeRoutes(app: DecoratedApp): void {
     if (!node || node.is_deleted === 1) {
       return reply.code(404).send({ error: 'node not found' })
     }
+    const current = app.deps.vault.hydrateNode(node)
     return {
       annotations: app.deps.annotations.listByNode(node.id),
-      node,
+      node: current,
       segments: app.deps.segments.listByNode(node.id),
     }
   })

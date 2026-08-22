@@ -83,6 +83,21 @@ describe('Workbench', () => {
     expect(screen.getByTestId('subdoc-panel')).not.toHaveClass('is-collapsed')
   })
 
+  it('uses the notebook title for the root instead of exposing the full generation prompt', () => {
+    const root = { ...node('root', null), user_input: '这是一段很长的生成提示，不应该充当工作台标题' }
+    act(() => useWorkbench.getState().loadTree({
+      nodes: [root],
+      rootNodeId: root.id,
+      treeId: 'named-tree',
+      treeTitle: '产品研究笔记',
+    }))
+    render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
+
+    expect(screen.getByRole('heading', { name: '产品研究笔记' })).toBeInTheDocument()
+    expect(document.getElementById('main-document-question')).toHaveTextContent('产品研究笔记')
+    expect(screen.getAllByRole('button', { name: '产品研究笔记' }).length).toBeGreaterThan(0)
+  })
+
   it('focus mode hides side panels via class (animatable), not hidden attribute', () => {
     render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
 
@@ -115,9 +130,9 @@ describe('Workbench', () => {
     const main = screen.getByTestId('main-doc')
     const subdoc = screen.getByTestId('subdoc-panel')
 
-    fireEvent.click(tabs.getByRole('tab', { name: '树' }))
+    fireEvent.click(tabs.getByRole('tab', { name: '笔记库' }))
     expect(screen.getByTestId('workbench')).toHaveAttribute('data-mobile-panel', 'tree')
-    fireEvent.click(tabs.getByRole('tab', { name: '子文档' }))
+    fireEvent.click(tabs.getByRole('tab', { name: '关联' }))
     expect(screen.getByTestId('workbench')).toHaveAttribute('data-mobile-panel', 'subdoc')
     expect(screen.getByTestId('tree-panel')).toBe(tree)
     expect(screen.getByTestId('main-doc')).toBe(main)
@@ -132,19 +147,19 @@ describe('Workbench', () => {
 
     fireEvent.keyDown(documentTab, { key: 'ArrowRight' })
 
-    const subdocTab = tabs.getByRole('tab', { name: '子文档' })
+    const subdocTab = tabs.getByRole('tab', { name: '关联' })
     expect(screen.getByTestId('workbench')).toHaveAttribute('data-mobile-panel', 'subdoc')
     expect(subdocTab).toHaveFocus()
     expect(subdocTab).toHaveAttribute('tabindex', '0')
 
     fireEvent.keyDown(subdocTab, { key: 'Home' })
-    expect(tabs.getByRole('tab', { name: '树' })).toHaveFocus()
+    expect(tabs.getByRole('tab', { name: '笔记库' })).toHaveFocus()
     expect(screen.getByTestId('workbench')).toHaveAttribute('data-mobile-panel', 'tree')
   })
 
   it('exposes resizer values and supports keyboard width changes', () => {
     render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
-    const separator = screen.getByRole('separator', { name: '调整树导航宽度' })
+    const separator = screen.getByRole('separator', { name: '调整笔记库导航宽度' })
     const before = Number(separator.getAttribute('aria-valuenow'))
 
     expect(separator).toHaveAttribute('tabindex', '0')
@@ -176,7 +191,7 @@ describe('Workbench', () => {
   it('returns to the document panel after selecting a tree node', () => {
     render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
     const tabs = within(screen.getByRole('tablist', { name: '工作区面板' }))
-    fireEvent.click(tabs.getByRole('tab', { name: '树' }))
+    fireEvent.click(tabs.getByRole('tab', { name: '笔记库' }))
     fireEvent.click(screen.getByRole('button', { name: 'child' }))
     expect(screen.getByTestId('workbench')).toHaveAttribute('data-mobile-panel', 'main')
   })
@@ -191,7 +206,7 @@ describe('Workbench', () => {
     render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
 
     fireEvent.click(screen.getByRole('button', { name: '更多 (2)' }))
-    const listbox = screen.getByRole('listbox', { name: '更多子文档' })
+    const listbox = screen.getByRole('listbox', { name: '更多关联内容' })
     expect(within(listbox).getAllByRole('option')).toHaveLength(2)
     fireEvent.keyDown(listbox, { key: 'ArrowDown' })
     fireEvent.keyDown(listbox, { key: 'Enter' })
@@ -258,7 +273,7 @@ describe('Workbench', () => {
     expect(generationTaskRegistry.isTaskLive(memoryTask)).toBe(true)
     expect(useWorkbench.getState().nodesById['child-a'].status).toBe('streaming')
     expect(useWorkbench.getState().nodesById['child-b'].status).toBe('streaming')
-    expect(screen.getByText('2 个分支生成中')).toHaveAttribute('data-gen-status', 'streaming')
+    expect(screen.getByText('2 个关联内容生成中')).toHaveAttribute('data-gen-status', 'streaming')
     expect(screen.getByRole('tab', { name: '分支 A，生成中' })).toHaveAttribute('data-gen-status', 'streaming')
     expect(screen.getByRole('tab', { name: '分支 A，生成中' })).toHaveAttribute('data-task-key', redisKey)
     expect(screen.getByRole('tab', { name: '分支 B，生成中' })).toHaveAttribute('data-gen-status', 'streaming')
@@ -281,7 +296,7 @@ describe('Workbench', () => {
       render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
 
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
-      const tabStrip = screen.getByRole('tablist', { name: '子文档标签' })
+      const tabStrip = screen.getByRole('tablist', { name: '关联内容标签' })
       expect(tabStrip).toHaveClass('subdoc-tabs')
       expectCssDeclarations('.subdoc-tabs', {
         'flex-wrap': 'nowrap',
@@ -318,9 +333,9 @@ describe('Workbench', () => {
 
   it('remounts the tree panel when switching trees so local errors cannot leak', () => {
     render(<ApiProvider api={{ getNode: () => new Promise(() => {}), listTrees: () => new Promise(() => {}) } as never}><Workbench /></ApiProvider>)
-    const firstTreeNav = screen.getByRole('navigation', { name: '文档树' })
+    const firstTreeNav = screen.getByRole('navigation', { name: '笔记结构' })
     act(() => useWorkbench.getState().loadTree({ nodes: [node('other-root', null)], rootNodeId: 'other-root', treeId: 'other-tree' }))
-    expect(screen.getByRole('navigation', { name: '文档树' })).not.toBe(firstTreeNav)
+    expect(screen.getByRole('navigation', { name: '笔记结构' })).not.toBe(firstTreeNav)
   })
 
   it('keeps a long main question to two lines until explicitly expanded', () => {

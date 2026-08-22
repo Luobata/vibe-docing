@@ -90,6 +90,21 @@ describe('NodeRepo', () => {
     expect(nodes.get(child.id)?.is_deleted).toBe(0)
   })
 
+  it('restores deleted ancestors when restoring a descendant without reviving its siblings', () => {
+    const { nodes, tree, rootNode } = setup()
+    const parent = nodes.create({ treeId: tree.id, parentId: rootNode.id })
+    const child = nodes.create({ treeId: tree.id, parentId: parent.id })
+    const sibling = nodes.create({ treeId: tree.id, parentId: parent.id })
+    nodes.softDelete(parent.id)
+
+    nodes.restore(child.id)
+
+    expect(nodes.get(parent.id)?.is_deleted).toBe(0)
+    expect(nodes.get(child.id)?.is_deleted).toBe(0)
+    expect(nodes.get(sibling.id)?.is_deleted).toBe(1)
+    expect(nodes.getChildren(parent.id).map((item) => item.id)).toEqual([child.id])
+  })
+
   it('updates only the requested content fields', () => {
     const { nodes, tree, rootNode } = setup()
     const node = nodes.create({

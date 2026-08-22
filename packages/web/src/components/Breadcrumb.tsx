@@ -1,4 +1,5 @@
 import { useWorkbench } from '../state/workbench-store'
+import { Icon } from './Icon'
 import { nodeTitle } from './TreePanel'
 
 export function Breadcrumb() {
@@ -9,12 +10,13 @@ export function Breadcrumb() {
   const mainPath = useWorkbench((state) => state.mainPath)
   const nodesById = useWorkbench((state) => state.nodesById)
   const setMain = useWorkbench((state) => state.setMain)
+  const treeTitle = useWorkbench((state) => state.treeTitle)
 
   return (
     <div className="navigation-strip">
       <div aria-label="历史导航" className="history-controls">
         <button aria-label="后退" disabled={backStack.length === 0} onClick={goBack} type="button">
-          ←
+          <Icon name="back" />
         </button>
         <button
           aria-label="前进"
@@ -22,7 +24,7 @@ export function Breadcrumb() {
           onClick={goForward}
           type="button"
         >
-          →
+          <Icon name="forward" />
         </button>
       </div>
       <nav aria-label="面包屑" className="breadcrumb">
@@ -33,7 +35,7 @@ export function Breadcrumb() {
               onClick={() => setMain(id)}
               type="button"
             >
-              {nodeTitle(nodesById[id])}
+              {nodeTitle(nodesById[id], treeTitle)}
             </button>
           </span>
         ))}
@@ -41,4 +43,3 @@ export function Breadcrumb() {
     </div>
   )
 }
-

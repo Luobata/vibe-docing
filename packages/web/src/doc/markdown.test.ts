@@ -63,6 +63,30 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('普通 <img src=x onerror=alert(1)> 文本')
     expect(html).not.toContain('<img')
   })
+
+  it('renders Obsidian internal links without changing their source syntax', () => {
+    const html = renderMarkdown('关联 [[设计原则]] 和 [[方案#结论|最终结论]]')
+    expect(html).toContain('data-wikilink="设计原则"')
+    expect(html).toContain('>设计原则</span>')
+    expect(html).toContain('data-wikilink="方案#结论"')
+    expect(html).not.toContain('role="link"')
+    expect(html).toContain('>最终结论</span>')
+  })
+
+  it('renders Obsidian task items as disabled checkboxes', () => {
+    const html = renderMarkdown('- [ ] 待处理\n- [x] 已完成')
+    expect(html).toContain('class="contains-task-list"')
+    expect(html).toContain('class="task-list-item"')
+    expect(html).toContain('aria-label="未完成" disabled type="checkbox"')
+    expect(html).toContain('aria-label="已完成" checked disabled type="checkbox"')
+    expect(html).not.toContain('[ ]')
+  })
+
+  it('escapes internal-link targets and aliases', () => {
+    const html = renderMarkdown('[[<script>|<img src=x>]]')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<img')
+  })
 })
 
 describe('renderAnnotatedHtml', () => {

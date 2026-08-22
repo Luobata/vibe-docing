@@ -32,12 +32,12 @@ export function MergeButton({
             })
             .catch(() => {
               setMergeState(sourceNodeId, null)
-              setError('合并失败，子分支仍完整保留。')
+              setError('合并失败，当前关联内容仍完整保留。')
             })
         }}
         type="button"
       >
-        {busy ? '合并中…' : '合并回父节点'}
+        {busy ? '合并中…' : '合并回来源笔记'}
       </button>
       {error && <span role="alert">{error}</span>}
     </div>

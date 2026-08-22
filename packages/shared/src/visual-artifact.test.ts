@@ -53,7 +53,7 @@ describe('visual contracts', () => {
       { type: 'visual', start: 7, end: 21 },
       { type: 'text', start: 21, end: 26 },
     ])
-    expect(prosemirrorToPlainText('legacy plain text')).toBe('')
+    expect(prosemirrorToPlainText('legacy plain text')).toBe('legacy plain text')
     expect(prosemirrorToPlainText(null)).toBe('')
   })
 })

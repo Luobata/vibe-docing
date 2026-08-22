@@ -49,7 +49,7 @@ describe('resolveSegmentContent', () => {
       segment(),
     )
     expect(result).toEqual({
-      aiResponse: 'latest answer',
+      documentContent: 'latest answer',
       kind: 'ancestor',
       userInput: 'latest question',
     })
@@ -71,7 +71,7 @@ describe('resolveSegmentContent', () => {
     )
     expect(calls).toEqual([['ancestor', 1]])
     expect(result).toEqual({
-      aiResponse: 'locked answer',
+      documentContent: 'locked answer',
       kind: 'ancestor',
       userInput: 'locked question',
     })

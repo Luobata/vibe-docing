@@ -13,7 +13,9 @@ interface CreateNodeInput {
 interface UpdateNodeContentPatch {
   userInput?: string | null
   aiResponse?: string | null
+  documentContent?: string | null
   status?: NodeStatus
+  contentSchemaVersion?: 0 | 1 | 2
 }
 
 export function createNodeRepo(db: Db, clock: Clock) {
@@ -84,19 +86,102 @@ export function createNodeRepo(db: Db, clock: Clock) {
       throw new Error(`Node not found: ${id}`)
     }
 
+    const now = clock.now()
+    const changesDocument = patch.documentContent !== undefined
     db.prepare(
       `UPDATE nodes
-       SET user_input = ?, ai_response = ?, status = ?, updated_at = ?
+       SET user_input = ?, ai_response = ?, document_content = ?, status = ?, updated_at = ?,
+           content_revision = content_revision + ?,
+           content_schema_version = ?,
+           content_updated_at = CASE WHEN ? = 1 THEN ? ELSE content_updated_at END
        WHERE id = ?`,
     ).run(
       patch.userInput !== undefined ? patch.userInput : current.user_input,
       patch.aiResponse !== undefined ? patch.aiResponse : current.ai_response,
+      patch.documentContent !== undefined ? patch.documentContent : current.document_content ?? null,
       patch.status ?? current.status,
-      clock.now(),
+      now,
+      changesDocument ? 1 : 0,
+      patch.contentSchemaVersion ?? current.content_schema_version ?? 0,
+      changesDocument ? 1 : 0,
+      now,
       id,
     )
 
     return get(id)!
+  }
+
+  function updateGeneration(id: string, patch: {
+    aiResponse: string
+    status?: NodeStatus
+    userInput?: string | null
+  }): NodeRow {
+    return updateContent(id, {
+      aiResponse: patch.aiResponse,
+      documentContent: patch.aiResponse,
+      status: patch.status,
+      userInput: patch.userInput,
+    })
+  }
+
+  function updateDocumentContent(input: {
+    baseRevision: number
+    content: string
+    id: string
+    schemaVersion: 1 | 2
+  }): NodeRow | undefined {
+    const now = clock.now()
+    const result = db.prepare(
+      `UPDATE nodes
+       SET document_content = ?, content_revision = content_revision + 1,
+           content_schema_version = ?, content_updated_at = ?, updated_at = ?
+       WHERE id = ? AND is_deleted = 0 AND content_revision = ?`,
+    ).run(
+      input.content,
+      input.schemaVersion,
+      now,
+      now,
+      input.id,
+      input.baseRevision,
+    )
+    return result.changes === 1 ? get(input.id) : undefined
+  }
+
+  function setVaultFile(input: {
+    contentHash: string
+    fileKind: 'markdown' | 'canvas' | 'base'
+    filePath: string
+    id: string
+    vaultRoot: string
+  }): NodeRow {
+    db.prepare(
+      `UPDATE nodes
+       SET vault_root = ?, file_path = ?, file_kind = ?, content_hash = ?
+       WHERE id = ?`,
+    ).run(input.vaultRoot, input.filePath, input.fileKind, input.contentHash, input.id)
+    return get(input.id)!
+  }
+
+  function syncExternalContent(input: {
+    content: string
+    contentHash: string
+    fileKind: 'markdown' | 'canvas' | 'base'
+    id: string
+  }): NodeRow {
+    const current = get(input.id)
+    if (!current) throw new Error(`Node not found: ${input.id}`)
+    if (current.content_hash === input.contentHash
+      && current.document_content === input.content
+      && current.content_schema_version === 2) return current
+    const now = clock.now()
+    db.prepare(
+      `UPDATE nodes
+       SET document_content = ?, content_hash = ?, file_kind = ?,
+           content_schema_version = 2, content_revision = content_revision + 1,
+           content_updated_at = ?, updated_at = ?
+       WHERE id = ?`,
+    ).run(input.content, input.contentHash, input.fileKind, now, now, input.id)
+    return get(input.id)!
   }
 
   function setDeleted(id: string, isDeleted: 0 | 1): void {
@@ -119,7 +204,30 @@ export function createNodeRepo(db: Db, clock: Clock) {
   }
 
   function restore(id: string): void {
-    setDeleted(id, 0)
+    // Restoring a descendant below a still-deleted parent would make it
+    // disappear from both the tree and the trash. Bring back its ancestor path
+    // as well as the selected subtree so every restored node is reachable.
+    db.prepare(
+      `WITH RECURSIVE
+       ancestors(id, parent_id) AS (
+         SELECT id, parent_id FROM nodes WHERE id = ?
+         UNION ALL
+         SELECT nodes.id, nodes.parent_id
+         FROM nodes
+         JOIN ancestors ON ancestors.parent_id = nodes.id
+       ),
+       subtree(id) AS (
+         SELECT id FROM nodes WHERE id = ?
+         UNION ALL
+         SELECT nodes.id
+         FROM nodes
+         JOIN subtree ON nodes.parent_id = subtree.id
+       )
+       UPDATE nodes
+       SET is_deleted = 0, updated_at = ?
+       WHERE id IN (SELECT id FROM ancestors)
+          OR id IN (SELECT id FROM subtree)`,
+    ).run(id, id, clock.now())
   }
 
   function listDeleted(treeId: string): NodeRow[] {
@@ -137,7 +245,11 @@ export function createNodeRepo(db: Db, clock: Clock) {
     get,
     getChildren,
     getPathToRoot,
+    setVaultFile,
+    syncExternalContent,
     updateContent,
+    updateDocumentContent,
+    updateGeneration,
     softDelete,
     restore,
     listDeleted,

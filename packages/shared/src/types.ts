@@ -47,12 +47,25 @@ export interface NodeRow {
   parent_id: string | null
   sort_order: number
   user_input: string | null
+  /** Immutable evidence of the latest model generation. User edits must not write this field. */
   ai_response: string | null
+  /** Canonical editable document body. Legacy rows may omit it and fall back to ai_response. */
+  document_content?: string | null
   status: NodeStatus
   is_deleted: 0 | 1
   model_override: string | null
   created_at: string
   updated_at: string
+  /** Monotonic revision of the editable document body. Older fixtures may omit it. */
+  content_revision?: number
+  /** 0 is the legacy markdown-in-paragraph representation; 1 is semantic ProseMirror JSON. */
+  content_schema_version?: number
+  content_updated_at?: string | null
+  /** Vault-relative path. The file is the source of truth when present. */
+  file_path?: string | null
+  vault_root?: string | null
+  file_kind?: 'markdown' | 'canvas' | 'base' | null
+  content_hash?: string | null
 }
 
 export interface AnnotationRow {
@@ -66,6 +79,7 @@ export interface AnnotationRow {
   child_node_id: string | null
   created_at: string
   visual_target?: VisualAnnotationTarget | null
+  anchor_status?: 'valid' | 'orphaned'
 }
 
 export interface ContextSegmentRow {
@@ -83,9 +97,47 @@ export interface NodeVersionRow {
   node_id: string
   version_no: number
   user_input: string | null
+  /** Model-generation evidence captured with this version. */
   ai_response: string | null
+  /** Editable document body captured with this version. */
+  document_content?: string | null
   change_kind: ChangeKind
   created_at: string
+  edit_session_id?: string | null
+  content_revision?: number | null
+  updated_at?: string | null
+}
+
+/**
+ * Read the editable document through the single legacy-compatibility boundary.
+ * New writes target document_content; ai_response is only a fallback for rows
+ * created before the fields were separated.
+ */
+export function documentContentOf(
+  value: Pick<NodeRow, 'ai_response' | 'document_content'>
+    | Pick<NodeVersionRow, 'ai_response' | 'document_content'>,
+): string | null {
+  return value.document_content ?? value.ai_response
+}
+
+export interface DocumentContentView {
+  doc?: import('./prosemirror').ProseMirrorNode
+  source?: string
+  fileKind?: 'markdown' | 'canvas' | 'base'
+  filePath?: string | null
+  contentHash?: string | null
+  nodeId: string
+  revision: number
+  schemaVersion: 0 | 1 | 2
+  updatedAt: string | null
+}
+
+export interface DocumentAnchorPatch {
+  from: number | null
+  id: string
+  quotedText: string | null
+  status: 'valid' | 'orphaned'
+  to: number | null
 }
 
 export interface MergeRow {

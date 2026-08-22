@@ -10,6 +10,7 @@ import {
   type GenerationTaskStatus,
 } from '../state/workbench-store'
 import { DocView } from './DocView'
+import { Icon } from './Icon'
 import { MergeButton } from './MergeButton'
 import { nodeTitle } from './TreePanel'
 import { scrollMainDocumentToTop, transitionDocument } from '../flow/document-transition'
@@ -31,10 +32,15 @@ function isAbortError(error: unknown, signal: AbortSignal): boolean {
 
 function humanize(message: string): string {
   const detail = message.trim()
-  if (/HTTP\s*(401|403)/.test(detail)) return '模型鉴权失败，请到设置检查 API Key。'
-  if (/HTTP\s*5\d\d/.test(detail) || /answer failed/i.test(detail)) return '模型服务暂时不可用，当前分支已保留，可单独重试。'
-  if (/fetch|network|Failed to fetch/i.test(detail)) return '网络连接中断，当前分支已保留，可单独重试。'
-  return '分支生成中断，当前内容已保留，可单独重试。'
+  if (/HTTP\s*(401|403)/.test(detail)) return 'AI 服务鉴权失败，请到高级设置检查 API 密钥。'
+  if (/HTTP\s*5\d\d/.test(detail) || /answer failed/i.test(detail)) return 'AI 服务暂时不可用，当前关联内容已保留，可单独重试。'
+  if (/fetch|network|Failed to fetch/i.test(detail)) return '网络连接中断，当前关联内容已保留，可单独重试。'
+  return '关联内容生成中断，当前内容已保留，可单独重试。'
+}
+
+function generatedContent(text: string): Pick<NodeRow, 'ai_response' | 'document_content'> {
+  const content = plainTextToProseMirror(text)
+  return { ai_response: content, document_content: content }
 }
 
 export function generationBadgeState(
@@ -55,14 +61,15 @@ export function generationBadgeState(
 }
 
 export function GenerationBadge({ state }: { state: GenerationBadgeState }) {
-  const icon = state.status === 'streaming' ? '▍' : state.status === 'error' ? '!' : '■'
   return (
     <span
       className={`subdoc-task-indicator is-${state.status}`}
       data-gen-status={state.status}
       data-task-key={state.key}
     >
-      <span aria-hidden="true" className="subdoc-task-icon">{icon}</span>
+      <span aria-hidden="true" className="subdoc-task-icon">
+        {state.status === 'streaming' ? null : <Icon name={state.status === 'error' ? 'alert' : 'close'} size={13} />}
+      </span>
       <span>{state.label}</span>
     </span>
   )
@@ -70,7 +77,7 @@ export function GenerationBadge({ state }: { state: GenerationBadgeState }) {
 
 export function SubdocTabs({
   annotations = [],
-  emptyLabel = '还没有派生分支',
+  emptyLabel = '还没有关联内容',
   nodeIds,
 }: {
   annotations?: AnnotationRow[]
@@ -175,7 +182,7 @@ export function SubdocTabs({
       targetNodeId: target.id,
     })
     if (!task) return
-    currentNode = { ...target, ai_response: plainTextToProseMirror(''), status: 'streaming' }
+    currentNode = { ...target, ...generatedContent(''), status: 'streaming' }
     useWorkbench.getState().upsertNode(currentNode)
     try {
       await api.streamAnswer(target.id, question, {
@@ -188,7 +195,7 @@ export function SubdocTabs({
           text += chunk
           currentNode = {
             ...target,
-            ai_response: plainTextToProseMirror(text),
+            ...generatedContent(text),
             status: 'streaming',
           }
           useWorkbench.getState().upsertNode(currentNode)
@@ -206,7 +213,7 @@ export function SubdocTabs({
         },
       }, task.controller.signal)
       if (generationTaskRegistry.isTaskLive(task)) {
-        const readable = '模型未返回完成状态，当前分支已保留，可单独重试。'
+        const readable = 'AI 未返回完成状态，当前关联内容已保留，可单独重试。'
         useWorkbench.getState().upsertNode({ ...currentNode, status: 'error' })
         generationTaskRegistry.settle(task, 'error', readable)
       }
@@ -223,7 +230,7 @@ export function SubdocTabs({
 
   return (
     <div className="subdoc-tabs-shell">
-      <div aria-label="子文档标签" className="subdoc-tabs" ref={tabsRef} role="tablist">
+      <div aria-label="关联内容标签" className="subdoc-tabs" ref={tabsRef} role="tablist">
         {displayedNodeIds.map((id) => {
           const title = nodeTitle(nodesById[id])
           const taskKey = taskKeyByTarget[id]
@@ -260,12 +267,12 @@ export function SubdocTabs({
               <h3>{nodeTitle(current)}</h3>
               {currentSourceKind === 'selection' && (
                 <span className="subdoc-source-label" data-source-kind="selection">
-                  来源：选中文本派生
+                  基于：选中的原文
                 </span>
               )}
               {currentSourceKind === 'whole' && (
                 <span className="subdoc-source-label" data-source-kind="whole">
-                  来源：整份文档追问 · 无具体原文锚点
+                  基于：整篇笔记 · 无具体原文位置
                 </span>
               )}
               {currentBadge && (

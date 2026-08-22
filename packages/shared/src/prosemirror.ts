@@ -18,11 +18,6 @@ function parseDocument(json: string | null): ProseMirrorNode | undefined {
   }
 }
 
-function nodeText(node: ProseMirrorNode): string {
-  if (node.type === 'hard_break') return '\n'
-  return (node.text ?? '') + (node.content ?? []).map(nodeText).join('')
-}
-
 /**
  * Canonical document projection used by annotations. A visual atom contributes
  * exactly its validated reference alt text plus one newline. UI chrome and
@@ -30,34 +25,64 @@ function nodeText(node: ProseMirrorNode): string {
  */
 export function prosemirrorToRenderRuns(json: string | null): ProseMirrorRenderRun[] {
   const document = parseDocument(json)
-  if (!document) return []
+  if (!document) return json ? [{ type: 'text', text: json, start: 0, end: json.length }] : []
   const runs: ProseMirrorRenderRun[] = []
   let offset = 0
   let pendingText = ''
   let pendingStart = 0
+  let endsWithNewline = false
   const flushText = (): void => {
     if (!pendingText) return
     runs.push({ type: 'text', text: pendingText, start: pendingStart, end: pendingStart + pendingText.length })
     pendingText = ''
   }
 
-  for (const [index, child] of (document.content ?? []).entries()) {
-    if (child.type === 'visual_ref') {
+  const appendText = (value: string): void => {
+    if (!value) return
+    if (!pendingText) pendingStart = offset
+    pendingText += value
+    offset += value.length
+    endsWithNewline = value.endsWith('\n')
+  }
+
+  const separatorFor = (node: ProseMirrorNode): string => {
+    if (node.type === 'table_row' || node.type === 'tableRow') return '\t'
+    if (['doc', 'blockquote', 'bullet_list', 'ordered_list', 'list_item',
+      'task_list', 'task_item', 'table', 'table_cell', 'table_header',
+      'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem',
+      'tableCell', 'tableHeader'].includes(node.type ?? '')) return '\n'
+    return ''
+  }
+
+  const visit = (node: ProseMirrorNode): void => {
+    if (node.type === 'visual_ref') {
       flushText()
-      const checked = importVisualReference(child.attrs)
-      if (!checked) continue
+      const checked = importVisualReference(node.attrs)
+      if (!checked) return
       const length = checked.altText.length + 1
       runs.push({ type: 'visual', reference: checked, start: offset, end: offset + length })
       offset += length
       pendingStart = offset
-      continue
+      endsWithNewline = true
+      return
     }
-    const text = nodeText(child)
-    const separator = index < (document.content?.length ?? 0) - 1 ? '\n' : ''
-    if (!pendingText) pendingStart = offset
-    pendingText += text + separator
-    offset += text.length + separator.length
+
+    if (node.type === 'hard_break' || node.type === 'hardBreak') {
+      appendText('\n')
+      return
+    }
+    appendText(node.text ?? '')
+    const children = node.content ?? []
+    const separator = separatorFor(node)
+    children.forEach((child, index) => {
+      visit(child)
+      if (index < children.length - 1 && separator) {
+        if (separator !== '\n' || !endsWithNewline) appendText(separator)
+      }
+    })
   }
+
+  visit(document)
   flushText()
   return runs
 }

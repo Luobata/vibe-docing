@@ -1,4 +1,4 @@
-import { prosemirrorToPlainText, prosemirrorToRenderRuns, type AnnotationRow, type NodeRow, type VisualReference } from '@vibe/shared'
+import { documentContentOf, prosemirrorToPlainText, prosemirrorToRenderRuns, type AnnotationRow, type NodeRow, type VisualReference } from '@vibe/shared'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { AnnotationRange } from '../doc/highlight'
 import { renderAnnotatedHtml } from '../doc/markdown'
@@ -33,14 +33,15 @@ export function DocView({
   const bodyRef = useRef<HTMLDivElement>(null)
   const [subdocTitleCanExpand, setSubdocTitleCanExpand] = useState(false)
   const [subdocTitleExpanded, setSubdocTitleExpanded] = useState(false)
-  const text = prosemirrorToPlainText(node.ai_response)
+  const documentContent = documentContentOf(node)
+  const text = prosemirrorToPlainText(documentContent)
   const ranges: AnnotationRange[] = annotations.flatMap((annotation) => {
     if ('from' in annotation) return [annotation]
     return annotation.anchor_from === null || annotation.anchor_to === null
       ? []
       : [{ from: annotation.anchor_from, id: annotation.id, to: annotation.anchor_to }]
   })
-  const runs = prosemirrorToRenderRuns(node.ai_response)
+  const runs = prosemirrorToRenderRuns(documentContent)
   const resolvedGenerationTaskKey = generationTaskKey ?? `retry:${node.id}`
   const resolvedRetryTaskKey = retryTaskKey ?? `retry:${node.id}`
 

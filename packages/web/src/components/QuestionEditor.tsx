@@ -83,8 +83,16 @@ export function QuestionEditor({ question, disabled, onResubmit, testId }: {
             </button>
           )}
         </div>
-        <button aria-label="编辑问题" className="quiet-button" disabled={disabled}
-          onClick={() => { if (!disabled) { setValue(question); setEditing(true) } }} type="button">编辑</button>
+        <button
+          aria-label="编辑问题并重新生成"
+          className="quiet-button"
+          disabled={disabled}
+          onClick={() => { if (!disabled) { setValue(question); setEditing(true) } }}
+          title="保存后会用新问题重新生成正文"
+          type="button"
+        >
+          编辑并重新生成
+        </button>
       </div>
     )
   }

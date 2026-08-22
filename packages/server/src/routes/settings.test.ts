@@ -11,7 +11,8 @@ describe('settings routes', () => {
     const app = buildApp(deps)
     const defaults = await app.inject({ method: 'GET', url: '/api/settings' })
     expect(defaults.statusCode).toBe(200)
-    expect(defaults.json()).toEqual({ baseUrl: null, hasApiKey: false, model: DEFAULT_PROVIDER_MODEL, projectRoot: null, provider: 'codex' })
+    expect(defaults.json()).toMatchObject({ baseUrl: null, hasApiKey: false, model: DEFAULT_PROVIDER_MODEL, projectRoot: null, provider: 'codex' })
+    expect(defaults.json().vaultPath).toContain('vibe-docing-memory-vault-')
 
     const updated = await app.inject({
       method: 'PUT', payload: { apiKey: 'secret', baseUrl: 'https://example.test', model: 'gpt-x', provider: 'custom' },

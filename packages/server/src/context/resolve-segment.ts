@@ -3,6 +3,7 @@ import type {
   NodeRow,
   NodeVersionRow,
 } from '@vibe/shared'
+import { documentContentOf } from '@vibe/shared'
 
 export interface ResolveSegmentDeps {
   nodes: {
@@ -15,7 +16,7 @@ export interface ResolveSegmentDeps {
 
 export type ResolvedSegment =
   | {
-      aiResponse: string | null
+      documentContent: string | null
       kind: 'ancestor'
       userInput: string | null
     }
@@ -38,14 +39,14 @@ export function resolveSegmentContent(
     const version = deps.versions.get(segment.ref_node_id, segment.ref_version_no)
     if (!version) return { kind: 'skip' }
     return {
-      aiResponse: version.ai_response,
+      documentContent: documentContentOf(version),
       kind: 'ancestor',
       userInput: version.user_input,
     }
   }
 
   return {
-    aiResponse: referencedNode.ai_response,
+    documentContent: documentContentOf(referencedNode),
     kind: 'ancestor',
     userInput: referencedNode.user_input,
   }

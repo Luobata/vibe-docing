@@ -108,3 +108,16 @@ describe('ChatBox', () => {
     expect(screen.queryByTestId('chat-image-thumb')).toBeNull()
   })
 })
+
+describe('ChatBox vibe:focus-ask', () => {
+  beforeEach(() => useWorkbench.getState().reset())
+  it('focuses the composer textarea when vibe:focus-ask is dispatched', () => {
+    render(<ChatBox disabled={false} onSubmit={() => {}} />)
+    const input = screen.getByLabelText('chat-input')
+    expect(input).not.toHaveFocus()
+    act(() => {
+      window.dispatchEvent(new CustomEvent('vibe:focus-ask'))
+    })
+    expect(input).toHaveFocus()
+  })
+})
