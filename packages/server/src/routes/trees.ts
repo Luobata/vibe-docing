@@ -1,6 +1,18 @@
 import type { NodeRow } from '@vibe/shared'
 import type { DecoratedApp } from '../app'
 
+/** 文件夹路径清洗：与笔记目录（vault-service.sanitizeDirectory）同一纪律。 */
+function sanitizeTreeFolder(input: string): string {
+  return input
+    .split(/[\\/]+/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
+    .map((segment) => segment.replace(/[^\p{L}\p{N}_\- ]/gu, '').trim())
+    .filter((segment) => segment.length > 0)
+    .slice(0, 6)
+    .join('/')
+}
+
 function objectBody(body: unknown): Record<string, unknown> | undefined {
   return typeof body === 'object' && body !== null && !Array.isArray(body)
     ? (body as Record<string, unknown>)
@@ -27,14 +39,25 @@ export function registerTreeRoutes(app: DecoratedApp): void {
   }))
 
   app.patch('/api/trees/:id', async (request, reply) => {
-    const title = objectBody(request.body)?.title
-    if (typeof title !== 'string' || !title.trim()) {
-      return reply.code(400).send({ error: 'invalid title' })
+    const body = objectBody(request.body)
+    const title = body?.title
+    const folder = body?.folder
+    if (typeof title === 'string' && title.trim()) {
+      if (!app.deps.trees.get(request.params.id)) {
+        return reply.code(404).send({ error: 'tree not found' })
+      }
+      return { tree: app.deps.trees.rename(request.params.id, title.trim()) }
     }
-    if (!app.deps.trees.get(request.params.id)) {
-      return reply.code(404).send({ error: 'tree not found' })
+    if (typeof folder === 'string' || folder === null) {
+      if (!app.deps.trees.get(request.params.id)) {
+        return reply.code(404).send({ error: 'tree not found' })
+      }
+      const sanitized = typeof folder === 'string' && folder.trim()
+        ? sanitizeTreeFolder(folder)
+        : null
+      return { tree: app.deps.trees.setFolder(request.params.id, sanitized) }
     }
-    return { tree: app.deps.trees.rename(request.params.id, title.trim()) }
+    return reply.code(400).send({ error: 'invalid title or folder' })
   })
 
   app.delete('/api/trees/:id', async (request, reply) => {

@@ -59,4 +59,28 @@ describe('POST /api/nodes/:id/route', () => {
     expect(response.statusCode).toBe(400)
     await app.close()
   })
+
+  it('returns a structured 503 for an unsupported provider', async () => {
+    const deps = createDeps({ db: openMemoryDb() })
+    const { rootNode, tree } = deps.trees.create('t')
+    const answer = deps.nodes.create({
+      parentId: rootNode.id,
+      treeId: tree.id,
+      userInput: '继续',
+    })
+    deps.settings.set('provider.name', 'claude-o50')
+    const app = buildApp(deps)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/nodes/${answer.id}/route`,
+    })
+
+    expect(response.statusCode).toBe(503)
+    expect(response.json()).toEqual({
+      code: 'PROVIDER_CONFIG',
+      error: 'Unsupported provider: claude-o50',
+    })
+    await app.close()
+  })
 })

@@ -2,6 +2,8 @@ import type {
   AnnotationKind,
   AnnotationRow,
   ContextSegmentRow,
+  CorrectDraft,
+  CorrectionMode,
   DocumentShareResponse,
   DocumentAnchorPatch,
   DocumentContentView,
@@ -210,6 +212,26 @@ export function createApi(options?: {
       }),
     getTrash: (treeId: string) =>
       json<{ nodes: NodeRow[] }>(`/trees/${treeId}/trash`),
+    search: (query: string, signal?: AbortSignal) =>
+      json<{ hits: Array<{ nodeId: string; snippet: string; title: string; treeId: string; treeTitle: string }> }>(
+        `/search?q=${encodeURIComponent(query)}`,
+        { signal },
+      ),
+    moveNode: (nodeId: string, directory: string) =>
+      json<{ node: NodeRow }>(`/nodes/${nodeId}/move`, {
+        body: JSON.stringify({ directory }),
+        method: 'POST',
+      }),
+    updateNodeTags: (nodeId: string, tags: string[]) =>
+      json<{ node: NodeRow }>(`/nodes/${nodeId}/tags`, {
+        body: JSON.stringify({ tags }),
+        method: 'PUT',
+      }),
+    setTreeFolder: (treeId: string, folder: string | null) =>
+      json<{ tree: TreeRow }>(`/trees/${treeId}`, {
+        body: JSON.stringify({ folder }),
+        method: 'PATCH',
+      }),
     getTree: (treeId: string) =>
       json<{
         annotations: AnnotationRow[]
@@ -237,6 +259,22 @@ export function createApi(options?: {
         `/nodes/${sourceNodeId}/merge`,
         { body: JSON.stringify({ targetNodeId }), method: 'POST' },
       ),
+    correct: (
+      sourceNodeId: string,
+      body: { direction: string; includeSubtree?: boolean; mode: CorrectionMode },
+    ) =>
+      json<CorrectDraft>(`/nodes/${sourceNodeId}/correct`, {
+        body: JSON.stringify(body),
+        method: 'POST',
+      }),
+    commitCorrection: (
+      sourceNodeId: string,
+      body: { direction: string; documentContent: string },
+    ) =>
+      json<{ merge: MergeRow; node: NodeRow }>(`/nodes/${sourceNodeId}/correct/commit`, {
+        body: JSON.stringify(body),
+        method: 'POST',
+      }),
     migrate: (
       nodeId: string,
       body: { newParentId: string; seedText?: string; target: RouteTarget },

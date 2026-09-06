@@ -70,7 +70,7 @@ describe('SubdocPanelTabs generation summary', () => {
     render(<ApiProvider api={{} as never}><SubdocPanelTabs annotations={[note]} canCreateNote={false} onCreateNote={() => {}} /></ApiProvider>)
     expect(screen.getByRole('tab', { name: /选中内容.*1/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /整篇内容.*0/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /批注.*1/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /笔记.*1/ })).toBeInTheDocument()
   })
 
   it('separates direct selection, global, and legacy branches without showing descendants', () => {

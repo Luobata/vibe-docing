@@ -20,6 +20,43 @@ describe('SettingsPanel', () => {
     expect(input).toHaveValue('/Users/me/Notes')
   })
 
+  it('uses a codex-only provider select and repairs an unsupported loaded value on save', async () => {
+    const updateSettings = vi.fn(async () => ({
+      baseUrl: null,
+      hasApiKey: false,
+      model: 'alwaysday1_max',
+      projectRoot: null,
+      provider: 'codex',
+      vaultPath: '/vault',
+    }))
+    const api = {
+      getSettings: vi.fn(async () => ({
+        baseUrl: null,
+        hasApiKey: false,
+        model: 'alwaysday1_max',
+        projectRoot: null,
+        provider: 'claude-o50',
+        vaultPath: '/vault',
+      })),
+      updateSettings,
+    }
+    render(<ApiProvider api={api as never}><SettingsPanel /></ApiProvider>)
+
+    const select = await screen.findByLabelText('AI 服务商') as HTMLSelectElement
+    expect(select.tagName).toBe('SELECT')
+    expect([...select.options].map((option) => option.value)).toEqual(['codex'])
+    expect(select).toHaveValue('codex')
+    expect(screen.getByText('当前服务商 "claude-o50" 不受支持，保存后将使用 codex')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'codex' }),
+      expect.any(AbortSignal),
+    ))
+    await waitFor(() => expect(screen.queryByText(/当前服务商/)).not.toBeInTheDocument())
+  })
+
   it('prefills settings, prevents duplicate saves, and shows saving and success feedback', async () => {
     let finishSave: ((settings: {
       baseUrl: string | null

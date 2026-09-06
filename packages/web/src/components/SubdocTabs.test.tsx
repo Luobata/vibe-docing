@@ -33,7 +33,9 @@ describe('SubdocTabs', () => {
     render(<ApiProvider api={{} as never}><SubdocTabs /></ApiProvider>)
 
     fireEvent.click(screen.getByRole('tab', { name: /Redis 深入/ }))
-    fireEvent.click(screen.getByLabelText('promote'))
+    expect(screen.getByRole('button', { name: '按说明合并到父文档' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '合并回来源笔记' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('设为主文档'))
     expect(useWorkbench.getState().mainNodeId).toBe('a')
   })
 
@@ -154,5 +156,49 @@ describe('SubdocTabs', () => {
     expect(generationTaskRegistry.getSnapshot().byKey[key]?.status).toBe('cancelled')
     expect(useWorkbench.getState().nodesById.a.status).toBe('cancelled')
     await waitFor(() => expect(screen.getByRole('button', { name: '重新生成' })).toHaveFocus())
+  })
+
+  it('moves between tabs with arrow keys, activating and focusing the target tab', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, ''), node('a', 'root', 'Redis 深入'), node('b', 'root', '内存方案')],
+      rootNodeId: 'root', treeId: 't',
+    })
+    useWorkbench.getState().openSubdocTab('a')
+    useWorkbench.getState().openSubdocTab('b')
+    render(<ApiProvider api={{} as never}><SubdocTabs /></ApiProvider>)
+
+    const second = screen.getByRole('tab', { name: /内存方案/ })
+    second.focus()
+    fireEvent.keyDown(second, { key: 'ArrowRight' }) // 末尾向右 → 回绕到首个
+    const first = screen.getByRole('tab', { name: /Redis 深入/ })
+    expect(first).toHaveFocus()
+    expect(useWorkbench.getState().activeSubdocId).toBe('a')
+    expect(first).toHaveAttribute('aria-selected', 'true')
+    expect(first).toHaveAttribute('aria-controls', 'subdoc-panel')
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'subdoc-tab-a')
+
+    fireEvent.keyDown(first, { key: 'ArrowLeft' }) // 首个向左 → 回绕到末尾
+    expect(screen.getByRole('tab', { name: /内存方案/ })).toHaveFocus()
+    expect(useWorkbench.getState().activeSubdocId).toBe('b')
+  })
+
+  it('jumps to the first/last tab with Home/End and keeps a single tab stop', () => {
+    useWorkbench.getState().loadTree({
+      nodes: [node('root', null, ''), node('a', 'root', 'Redis 深入'), node('b', 'root', '内存方案')],
+      rootNodeId: 'root', treeId: 't',
+    })
+    useWorkbench.getState().openSubdocTab('a')
+    useWorkbench.getState().openSubdocTab('b')
+    render(<ApiProvider api={{} as never}><SubdocTabs /></ApiProvider>)
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.filter((tab) => tab.getAttribute('tabindex') === '0')).toHaveLength(1)
+
+    const active = tabs.find((tab) => tab.getAttribute('tabindex') === '0')
+    active?.focus()
+    fireEvent.keyDown(active as HTMLElement, { key: 'Home' })
+    expect(screen.getByRole('tab', { name: /Redis 深入/ })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('tab', { name: /Redis 深入/ }), { key: 'End' })
+    expect(screen.getByRole('tab', { name: /内存方案/ })).toHaveFocus()
   })
 })

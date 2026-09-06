@@ -67,6 +67,13 @@ export function createTreeRepo(db: Db, clock: Clock) {
     return get(id)
   }
 
+  /** 笔记库归入文件夹；folder 为 null 表示未分组。清洗规则与笔记目录一致。 */
+  function setFolder(id: string, folder: string | null): TreeRow | undefined {
+    db.prepare('UPDATE trees SET folder = ?, updated_at = ? WHERE id = ? AND is_deleted = 0')
+      .run(folder, clock.now(), id)
+    return get(id)
+  }
+
   function restore(id: string): TreeRow | undefined {
     const result = db
       .prepare('UPDATE trees SET is_deleted = 0, updated_at = ? WHERE id = ? AND is_deleted = 1')
@@ -74,5 +81,5 @@ export function createTreeRepo(db: Db, clock: Clock) {
     return result.changes === 1 ? get(id) : undefined
   }
 
-  return { create, get, list, listDeleted, rename, restore, softDelete }
+  return { create, get, list, listDeleted, rename, restore, setFolder, softDelete }
 }

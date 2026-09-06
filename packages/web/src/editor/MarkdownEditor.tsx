@@ -131,7 +131,9 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const api = useApi()
   const initialSource = sourceFromNode(node)
   const [source, setSource] = useState(initialSource)
-  const [mode, setMode] = useState<ViewMode>(() => !initialSource.trim() || node.content_schema_version === 2 ? 'edit' : 'preview')
+  // 默认预览：有内容的笔记一律先看阅读视图，手动切到编辑；空笔记例外——
+  // 直接落进编辑器方便开写。
+  const [mode, setMode] = useState<ViewMode>(() => (!initialSource.trim() ? 'edit' : 'preview'))
   const [saveState, setSaveState] = useState<SaveState>('clean')
   const editorViewRef = useRef<EditorView | null>(null)
   const surfaceRef = useRef<HTMLDivElement | null>(null)
@@ -303,8 +305,8 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     <section className="document-editor markdown-editor" data-save-state={saveState} data-testid="doc-view">
       <header className="document-editor-chrome">
         <div aria-label="文档视图" className="document-view-switch" role="tablist">
-          <button aria-selected={mode === 'edit'} onClick={() => setMode('edit')} role="tab" type="button">编辑</button>
           <button aria-selected={mode === 'preview'} onClick={() => setMode('preview')} role="tab" type="button">预览</button>
+          <button aria-selected={mode === 'edit'} onClick={() => setMode('edit')} role="tab" type="button">编辑</button>
         </div>
         {mode === 'edit' && (
           <div aria-label="Markdown 格式" className="document-editor-toolbar" role="toolbar">

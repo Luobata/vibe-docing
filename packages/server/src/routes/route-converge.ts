@@ -1,5 +1,5 @@
 import type { DecoratedApp } from '../app'
-import { resolveProvider } from '../provider/registry'
+import { ProviderConfigError, resolveProvider } from '../provider/registry'
 import { createRouteDecisionService } from '../service/route-decision-service'
 
 export function registerRouteConvergeRoutes(app: DecoratedApp): void {
@@ -12,17 +12,23 @@ export function registerRouteConvergeRoutes(app: DecoratedApp): void {
       return reply.code(400).send({ error: 'node is not a routable optimistic answer' })
     }
 
-    const provider = resolveProvider(
-      { settings: app.deps.settings },
-      app.deps.providerOverride,
-    )
-    return createRouteDecisionService({
-      annotations: app.deps.annotations,
-      context: app.deps.context,
-      nodes: app.deps.nodes,
-      provider,
-      settings: app.deps.settings,
-    }).route({ answerNodeId: node.id })
+    try {
+      const provider = resolveProvider(
+        { settings: app.deps.settings },
+        app.deps.providerOverride,
+      )
+      return createRouteDecisionService({
+        annotations: app.deps.annotations,
+        context: app.deps.context,
+        nodes: app.deps.nodes,
+        provider,
+        settings: app.deps.settings,
+      }).route({ answerNodeId: node.id })
+    } catch (error) {
+      if (error instanceof ProviderConfigError) {
+        return reply.code(503).send({ code: 'PROVIDER_CONFIG', error: error.message })
+      }
+      throw error
+    }
   })
 }
-

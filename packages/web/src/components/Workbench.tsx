@@ -6,6 +6,7 @@ import { scrollMainDocumentToTop } from '../flow/document-transition'
 import { useGenerationTasks, useWorkbench } from '../state/workbench-store'
 import { useWorkbenchRoute } from '../flow/workbench-route'
 import { Breadcrumb } from './Breadcrumb'
+import { DocMeta } from './DocMeta'
 import { Icon } from './Icon'
 import { MainDoc } from './MainDoc'
 import { MainQuestionSummary } from './MainQuestionSummary'
@@ -18,6 +19,7 @@ import { groupSubdocIds, isSelectionSource } from './subdoc-classification'
 import { TrashPage } from './TrashPage'
 import { nodeTitle, TreePanel } from './TreePanel'
 import { TreeLauncher } from './TreeLauncher'
+import { SearchPalette } from './SearchPalette'
 import { VersionPanel } from './VersionPanel'
 import './Workbench.css'
 
@@ -180,12 +182,12 @@ export function Workbench() {
   const [showVersions, setShowVersions] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSessionMap, setShowSessionMap] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [toastPaused, setToastPaused] = useState(false)
   const [portalRoot, setPortalRoot] = useState<HTMLDivElement | null>(null)
   const { leftWidth, resizeSide, rightWidth, startDrag, resetSide } = useColumnResize()
   const drawerCloseRef = useRef<HTMLButtonElement>(null)
   const drawerRestoreFocusRef = useRef<HTMLElement | null>(null)
-  const subdocRef = useRef<HTMLElement>(null)
   const route = useWorkbenchRoute(api)
   const subdocGroups = groupSubdocIds(subdocTabs, notesForMain)
   const overflowNodeIds = subdocPanelTab === 'global'
@@ -218,6 +220,18 @@ export function Workbench() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [exitFocus, treeDrawerOpen])
 
+  // Cmd/Ctrl+K 打开全局搜索面板。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen(true)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   useEffect(() => {
     if (treeDrawerOpen) drawerCloseRef.current?.focus()
   }, [treeDrawerOpen])
@@ -227,11 +241,6 @@ export function Workbench() {
     const timer = setTimeout(() => useWorkbench.getState().clearToast(), 8000)
     return () => clearTimeout(timer)
   }, [toast, toastPaused])
-
-  useEffect(() => {
-    const buttons = subdocRef.current?.querySelectorAll<HTMLButtonElement>('.subdoc-tabs [role="tab"]')
-    buttons?.forEach((button) => button.setAttribute('title', button.textContent?.trim() || '未命名'))
-  }, [nodesById, subdocPanelTab, subdocTabs])
 
   async function handleCreateNote(note: string): Promise<void> {
     if (!mainNodeId) return
@@ -370,8 +379,17 @@ export function Workbench() {
               contentId="main-document-question"
               text={nodeLabel(mainNodeId, nodesById, treeTitle)}
             />
+            {mainNodeId && nodesById[mainNodeId] && <DocMeta node={nodesById[mainNodeId]} />}
           </div>
           <div className="header-actions">
+            <button
+              className="quiet-button"
+              onClick={() => setPaletteOpen(true)}
+              title="搜索全部笔记库（Cmd/Ctrl+K）"
+              type="button"
+            >
+              <Icon name="search" />搜索
+            </button>
             {treeId && (
               <button className="quiet-button" onClick={() => setShowSessionMap(true)} type="button">
                 <Icon name="map" />会话地图
@@ -404,6 +422,7 @@ export function Workbench() {
         <MainDoc />
       </main>
       {showSessionMap && treeId && <SessionMap onClose={() => setShowSessionMap(false)} />}
+      {paletteOpen && <SearchPalette onClose={() => setPaletteOpen(false)} />}
 
       {!focusMode && (
         <div
@@ -428,7 +447,6 @@ export function Workbench() {
         className={`subdoc-panel${focusMode ? ' is-collapsed' : ''}`}
         data-testid="subdoc-panel"
         id="subdoc-workbench-panel"
-        ref={subdocRef}
       >
         <header className="panel-header">
           <div>
@@ -453,7 +471,7 @@ export function Workbench() {
           onMouseLeave={() => setToastPaused(false)}
           role={typeof toast !== 'string' && toast.variant === 'error' ? 'alert' : 'status'}
         >
-          <span aria-hidden="true" className="toast-icon"><Icon name={typeof toast !== 'string' && toast.variant === 'error' ? 'alert' : typeof toast !== 'string' && toast.variant === 'success' ? 'check' : 'info'} size={15} /></span>
+          <span aria-hidden="true" className="toast-icon"><Icon name={typeof toast !== 'string' && toast.variant === 'error' ? 'alert' : typeof toast !== 'string' && toast.variant === 'success' ? 'check' : 'info'} size={14} /></span>
           <span>{typeof toast === 'string' ? toast : toast.message}</span>
           {typeof toast !== 'string' && toast.action && <button onClick={toast.action.onClick} type="button">{toast.action.label}</button>}
           <button aria-label="关闭提示" onClick={() => useWorkbench.getState().clearToast()} type="button"><Icon name="close" size={14} /></button>

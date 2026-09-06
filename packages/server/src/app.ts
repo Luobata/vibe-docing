@@ -14,8 +14,10 @@ import { registerTrashRoutes } from './routes/trash'
 import { registerRouteConvergeRoutes } from './routes/route-converge'
 import { registerMigrateRoutes } from './routes/migrate'
 import { registerMergeRoutes } from './routes/merge'
+import { registerCorrectRoutes } from './routes/correct'
 import { registerAnnotationRoutes } from './routes/annotation'
 import { registerSettingsRoutes } from './routes/settings'
+import { registerSearchRoutes } from './routes/search'
 import { registerShareRoutes } from './routes/share'
 import { registerVisualArtifactRoutes } from './routes/visual-artifacts'
 import { registerDocumentContentRoutes } from './routes/document-content'
@@ -42,8 +44,10 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerRouteConvergeRoutes(app)
   registerMigrateRoutes(app)
   registerMergeRoutes(app)
+  registerCorrectRoutes(app)
   registerAnnotationRoutes(app)
   registerSettingsRoutes(app)
+  registerSearchRoutes(app)
   registerShareRoutes(app)
   registerVisualArtifactRoutes(app)
 

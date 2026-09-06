@@ -87,6 +87,7 @@ describe('MainDoc fork flow', () => {
     const context = await screen.findByLabelText('关联来源')
     expect(context).toHaveTextContent('Memory 架构')
     expect(context).toHaveTextContent('MemoryScope 增加 roleId')
+    expect(within(context).getByRole('button', { name: '按说明合并到父文档' })).toBeInTheDocument()
     fireEvent.click(within(context).getByRole('button', { name: '返回来源' }))
     expect(useWorkbench.getState().mainNodeId).toBe('root')
     expect(useWorkbench.getState().focusedAnnotationId).toBe('ann-source')

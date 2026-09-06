@@ -1,52 +1,43 @@
-# Contract · ui（Round 8 · 代码块 Notion 化：预览 + 编辑）
+# Contract · ui（Round 15 · 文件夹拖拽归档：拖动 → 确认 → 放入）
 
-- Hub 分派时间：2026-08-22（Round 1–7 均已验收）
+- Hub 分派时间：2026-08-23（用户需求：笔记/笔记库创建文件夹后支持拖动，**放下需确认才执行**）
 - 状态：**active**
 - 回复路由：`node "/Users/bytedance/Documents/gpt/gsb-local/bin/relay.mjs" send hub progress|blocker|result '<payload-json>'`，发送后 `bash "/Users/bytedance/Documents/gpt/gsb-local/bin/nudge" hub`
 
 ## 1. Objective
 
-用户反馈：**预览与编辑里的代码块样式丑陋**。现状：
-- 预览 `.doc-body pre`（Workbench.css:1092）：`--surface-sunk` 底 + **1px 边框** + r3 —— 生硬的"贴边盒子"感；行内 code（:1083）也带边框，成"描边小方块"，拥挤。
-- 编辑态（Round 4 后正文 sans 16px）：``` 围栏内的代码行与普通正文完全同款，无任何视觉区分。
+为两层文件夹补齐**拖拽归档**（HTML5 原生 DnD，零依赖）：
+**A. 笔记库层面**（TreeLauncher）：拖笔记库行 → 放到文件夹头（或库所在文件夹行的容器）→ 确认 → `api.setTreeFolder`。
+**B. 笔记层面**（TreePanel）：拖笔记行 → 放到目录头 → 确认 → `api.moveNode`（注意 file_path 真实移动）。
 
-**目标（Notion 代码块设计语言）**：无描边、暖纸色底、等宽小一号、圆角 6px，行内代码用 Notion 标志性的暖红字 + 无边框浅底。
+**核心交互契约（用户明确要求）**：drop 不直接生效——弹出 ConfirmDialog（复用现有 a11y 范本组件），文案「将「{名称}」移入文件夹「{目录}」？」，确认才调 API，取消零变更。
+
+**Hub 已就绪 API（勿改）**：`api.setTreeFolder(treeId, folder|null)`、`api.moveNode(nodeId, directory)`（空串=根）；`dirOf` 的内部命名空间剥离逻辑（R18 补刀）——**拖拽目标目录传给 API 时注意**：moveNode 接收的是剥离后的用户目录（服务端按原名落盘 `用户目录/文件名`，这是期望行为）。
 
 ## 2. Scope
 
-**写（唯一写入者）**：
-- `packages/web/src/components/Workbench.css`
-- `packages/web/src/editor/MarkdownEditor.tsx`（**仅新增 CodeMirror 围栏行装饰扩展 + import**，不碰既有逻辑/handler；参照 Round 4 的"仅样式"口径）
-- `packages/web/src/editor/DocumentEditor.test.tsx` 或新增测试（装饰断言）
-
-禁触：server/shared/api/state/vite/package.json；无 git 操作；无新依赖。
+**写（唯一写入者）**：`packages/web/src/components/TreeLauncher.tsx`、`TreePanel.tsx`、`Workbench.css`（拖拽视觉）、两测试文件。**禁触**：server/shared/api/state；git；新依赖（用原生 draggable/dataTransfer）。
 
 **规格**：
+1. **可拖动**：TreeLauncher 库行、TreePanel 非根笔记行设 `draggable`；根笔记不可拖（与移动入口纪律一致）；拖动时行半透明（dragging 类）。`dataTransfer` 携带类型+id（建议自定义 MIME `application/x-vibe-item` + JSON），**仅接受同类型拖入**（拒绝外部文件拖入产生误动作）。
+2. **放置目标**：目录/文件夹头（含「未分组」？——是：拖到「未分组」= 移出文件夹/移回根，确认文案相应变化）。dragover 时目标高亮（主色描边或 tint 底，token 化）；无效目标（自身、自己的子树目录、同文件夹原位）不亮且 drop 无动作。
+3. **确认弹窗**：drop → ConfirmDialog（trigger=被拖行的主按钮，焦点还原失败可容忍；busy 态接 API in-flight）。确认 → 调 API → 成功后 store 更新（upsertNode / 本地 trees 重排）即时反映；失败 toast。取消 → 无任何变更。
+4. **移动端**：原生 DnD 不支持触摸——现有「移入文件夹」popover 仍是触屏路径，不额外做 polyfill（caveats 注明）。
+5. **键盘路径不受影响**：roving 模型与现有 popover 移动入口照旧；DnD 是鼠标增强而非替代。
+6. **视觉细节**：dragstart 时源行 opacity .4；drop 目标 `.is-drop-target`（2px 主色描边 + tint）；body 在 dragover 期间可加类禁用文本选中闪烁。全 token。
+7. **测试**（jsdom 的 DnD 事件可 fireEvent.dragStart/dragOver/drop 模拟）：①拖库到文件夹头→确认→setTreeFolder 以正确参数调用且本地重排；②取消→零调用；③拖笔记到目录头→确认→moveNode 调用+upsertNode；④拖到无效目标（自身子树/原位）→无弹窗；⑤外部 MIME 拒绝。≥5 个。
 
-A. **预览（阅读视图）**：
-1. 新增 token：`--code-bg: #F7F6F3;`（Notion 暖纸色）与 `--code-ink: #EB5757;`（行内代码字色）入 :root。
-2. `.doc-body pre`：去掉 1px 边框；`background: var(--code-bg)`；`border-radius: var(--r2)`；`padding: 16px 20px`；`margin: 1.1em 0`；内部 `pre code` 字号 `.84em`、行高 1.55、`font-family: var(--mono)`。保留 overflow-x 与既有细滚动条。
-3. 行内 `.doc-body code`（非 pre 内）：去边框；`background: rgba(135,131,120,.15)`；`color: var(--code-ink)`；`border-radius: 3px`；`padding: .15em .35em`；字号 `.85em`；mono。
-4. 同步 `.version-diff pre`（若存在同类描边）与分享渲染若有共享类（share 页面如独立样式表则不动，报告说明）。
-
-B. **编辑态（CodeMirror markdown）**：
-1. MarkdownEditor 新增一个 ViewPlugin：从文档首行扫到末行，状态机识别 ``` 围栏（含 ```lang 开行到闭合 ``` 行，含起止行），对围栏内所有行加 line decoration class `cm-code-line`。
-2. CSS（Workbench.css，作用域 `.document-editor-surface`）：`.cm-code-line { font-family: var(--mono); font-size: 13.5px; line-height: 1.55; background: var(--code-bg); }`；围栏起止标记行（``` 行本身）文字 `--text-3`（可用同一 class 加弱化变体或单独 class `cm-code-fence`）。
-3. 未闭合围栏（文档末尾未结束的 ```）：打开状态即装饰到末行（所见即所得常见行为）。
-4. 性能：doc 变化时重算（buildDecorations 基于 visible range + 保守全量也可，文档量级为笔记级，可接受）；不要每 keystroke 全文档 O(n²)。
-5. reduced-motion / 暗色：本项目仅浅色，无需处理。
-
-C. **测试**：编辑态渲染含 ``` 围栏的文档，断言围栏行存在 `.cm-code-line` 装饰、普通正文行无；预览态断言 pre 无 border 类样式（jsdom 读 computed 有限，可断言 style 规则存在/类名生效即可，保留语义）。
+**质量底线**：293+ 既有测试零删除；审计"做得对的 5 条"（含 ConfirmDialog 范本、IME、焦点环）不破坏。
 
 ## 3. Validation（done-when）
 
-1. `pnpm --filter @vibe/web typecheck` / `test` / `build` 全通过（260 既有零删除）。
-2. result 附：文件清单、命令输出摘要、A/B 自查各 2-3 行、caveats。
+1. `pnpm --filter @vibe/web typecheck` / `test` / `build` 全通过。
+2. result 附：文件清单、命令输出、自查 4-5 行、caveats（含触屏说明）。
 
 ## 4. Stop conditions
 
-- ViewPlugin 装饰在 jsdom 测试环境不可断言（CodeMirror 环境问题）→ 用最小 headless 验证思路改为代码审查 + Hub 浏览器复核，测试退化为"扩展注册不报错"级别，caveats 说明。
-- 发现围栏识别与既有 markdown 渲染冲突 → blocker。
+- jsdom 无法可靠模拟 dataTransfer（如 setData 读不回）→ 用最小 DataTransfer polyfill 或在 handler 提取可测的纯函数 + 测试降级为逻辑级，caveats 说明，Hub 将用真实浏览器补 E2E。
+- 与 roving 键盘/折叠持久化冲突 → 保键盘，DnD 降级为仅 popover 触发区外行，caveats 说明。
 
 ## 5. Reply route
 

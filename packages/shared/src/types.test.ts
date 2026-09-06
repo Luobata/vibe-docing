@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { documentContentOf, NODE_STATUSES, ROUTE_TARGETS, SEGMENT_TYPES } from './index'
+import {
+  CHANGE_KINDS,
+  documentContentOf,
+  NODE_STATUSES,
+  ROUTE_TARGETS,
+  SEGMENT_TYPES,
+  type CorrectDraft,
+} from './index'
 import { prosemirrorToPlainText } from './prosemirror'
 
 describe('shared type constants', () => {
@@ -28,6 +35,19 @@ describe('shared type constants', () => {
       'bound-subdoc',
       'new-branch',
     ])
+  })
+
+  it('includes corrective merges in version change kinds', () => {
+    expect(CHANGE_KINDS).toContain('correction')
+  })
+
+  it('models append drafts as a titled section', () => {
+    const draft: CorrectDraft = {
+      mode: 'append',
+      section: { body: '重组后的正文', title: '补充建议' },
+    }
+
+    expect(draft.section).toEqual({ body: '重组后的正文', title: '补充建议' })
   })
 })
 

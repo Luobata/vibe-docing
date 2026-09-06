@@ -1,6 +1,6 @@
-import { normalizeFencedCodeBlocks, type NodeRow, type VisualReference, type VisualStreamEvent } from '@vibe/shared'
+import { documentContentOf, normalizeFencedCodeBlocks, parseNodeTags, sanitizeTagList, type NodeRow, type VisualReference, type VisualStreamEvent } from '@vibe/shared'
 import { assembleContext, type ChatMessage } from '../context/assemble'
-import { plainTextToProseMirror } from '../context/prosemirror'
+import { plainTextToProseMirror, prosemirrorToPlainText } from '../context/prosemirror'
 import type { Provider } from '../provider/types'
 import type { createNodeRepo } from '../repo/node-repo'
 import type { createSegmentRepo } from '../repo/segment-repo'
@@ -17,6 +17,7 @@ type VersionRepo = ReturnType<typeof createVersionRepo>
 type VisualArtifactRepo = ReturnType<typeof createVisualArtifactRepo>
 
 interface SettingsPort {
+  get(key: string): string | undefined
   getProjectRoot(): string | null
 }
 
@@ -47,6 +48,31 @@ export interface GenerateAnswerInput {
   provider: Provider
   signal?: AbortSignal
   userInput: string
+}
+
+/** 回答完成后异步生成主题标签（增值路径，失败静默、绝不影响正文）。 */
+async function autoTagNode(
+  deps: { nodes: NodeRepo; settings: SettingsPort },
+  provider: Provider,
+  node: NodeRow,
+): Promise<void> {
+  try {
+    if (deps.settings.get('tags.autoGenerate') === 'false') return
+    if (parseNodeTags(node.tags_json).length > 0) return // 已有标签（编辑过/重试）不覆盖
+    const body = prosemirrorToPlainText(documentContentOf(node)).replace(/\s+/g, ' ').trim()
+    const text = `${node.user_input ?? ''}\n${body}`.trim().slice(0, 4000)
+    if (text.length < 20) return
+    const raw = await provider.complete([
+      { content: '你是笔记标签生成器。只输出一个 JSON 字符串数组，不要输出任何其它文字。', role: 'system' },
+      { content: `为下面的笔记生成 3-5 个简短主题标签（每条不超过 8 个字，中文优先）：\n\n${text}`, role: 'user' },
+    ])
+    const match = raw.match(/\[[\s\S]*\]/)
+    if (!match) return
+    const tags = sanitizeTagList(JSON.parse(match[0])).slice(0, 5)
+    if (tags.length > 0) deps.nodes.updateTags(node.id, tags)
+  } catch {
+    // 标签失败不影响回答主流程。
+  }
 }
 
 export function createAnswerService(deps: {
@@ -86,6 +112,7 @@ export function createAnswerService(deps: {
         nodeId: node.id,
         userInput: node.user_input,
       })
+      void autoTagNode(deps, input.provider, node)
       return node
     }
 

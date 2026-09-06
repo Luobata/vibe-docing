@@ -15,6 +15,7 @@ const ICON_PATHS = {
   back: <path d="M10.5 8h-7M6.8 4.6 3.4 8l3.4 3.4" />,
   check: <path d="M3 8.5l3.2 3.2L13 5" />,
   'chevron-right': <path d="M6 3.5 10.5 8 6 12.5" />,
+  'chevron-down': <path d="M3.5 6 8 10.5 12.5 6" />,
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   doc: (
     <>
@@ -35,6 +36,9 @@ const ICON_PATHS = {
   edit: <path d="M10.2 2.8l3 3L6 13l-3.6.6L3 10z" />,
   focus: (
     <path d="M2.5 6V3.5a1 1 0 0 1 1-1H6M10 2.5h2.5a1 1 0 0 1 1 1V6M13.5 10v2.5a1 1 0 0 1-1 1H10M6 13.5H3.5a1 1 0 0 1-1-1V10" />
+  ),
+  folder: (
+    <path d="M1.9 3.6a1 1 0 0 1 1-1h3l1.4 1.6h6.8a1 1 0 0 1 1 1v7.2a1 1 0 0 1-1 1H2.9a1 1 0 0 1-1-1z" />
   ),
   forward: <path d="M5.5 8h7M9.2 4.6 12.6 8l-3.4 3.4" />,
   history: (

@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createDeps } from '../deps'
 import { openMemoryDb } from '../db/connection'
 import { createMockProvider } from '../provider/mock-provider'
 import { fixedClock } from '../util/clock'
-import { createMergeService } from './merge-service'
+import { createMergeService, MergeAlreadyExistsError } from './merge-service'
 
 describe('MergeService', () => {
   it('appends a conclusion and audit records without destroying the source subtree', async () => {
@@ -71,5 +71,55 @@ describe('MergeService', () => {
       }),
     ).rejects.toThrow('direct parent')
   })
-})
 
+  it('rejects a repeated merge before calling the provider or adding audit rows', async () => {
+    const deps = createDeps({ db: openMemoryDb() })
+    const { rootNode, tree } = deps.trees.create('t')
+    const child = deps.nodes.create({ parentId: rootNode.id, treeId: tree.id })
+    const service = createMergeService(deps)
+    await service.merge({
+      provider: createMockProvider({ chunks: ['first conclusion'] }),
+      sourceNodeId: child.id,
+      targetNodeId: rootNode.id,
+    })
+    const provider = createMockProvider({ chunks: ['must not run'] })
+    const complete = vi.spyOn(provider, 'complete')
+    const segmentCount = deps.segments.listByNode(rootNode.id).length
+    const versionCount = deps.versions.listByNode(rootNode.id).length
+
+    await expect(service.merge({
+      provider,
+      sourceNodeId: child.id,
+      targetNodeId: rootNode.id,
+    })).rejects.toBeInstanceOf(MergeAlreadyExistsError)
+
+    expect(complete).not.toHaveBeenCalled()
+    expect(deps.merges.listByTarget(rootNode.id)).toHaveLength(1)
+    expect(deps.segments.listByNode(rootNode.id)).toHaveLength(segmentCount)
+    expect(deps.versions.listByNode(rootNode.id)).toHaveLength(versionCount)
+  })
+
+  it('allows only one concurrent merge to commit on a single database connection', async () => {
+    const deps = createDeps({ db: openMemoryDb() })
+    const { rootNode, tree } = deps.trees.create('t')
+    const child = deps.nodes.create({ parentId: rootNode.id, treeId: tree.id })
+    const resolvers: Array<(value: string) => void> = []
+    const provider = {
+      ...createMockProvider(),
+      complete: vi.fn(() => new Promise<string>((resolve) => { resolvers.push(resolve) })),
+    }
+    const service = createMergeService(deps)
+
+    const first = service.merge({ provider, sourceNodeId: child.id, targetNodeId: rootNode.id })
+    const second = service.merge({ provider, sourceNodeId: child.id, targetNodeId: rootNode.id })
+    expect(provider.complete).toHaveBeenCalledTimes(2)
+    resolvers.forEach((resolve, index) => resolve(`conclusion ${index + 1}`))
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.find((result) => result.status === 'rejected')
+    expect(rejected).toMatchObject({ reason: expect.any(MergeAlreadyExistsError) })
+    expect(deps.merges.listByTarget(rootNode.id)).toHaveLength(1)
+    expect(deps.segments.listByNode(rootNode.id).filter((segment) => segment.type === 'merged-conclusion')).toHaveLength(1)
+  })
+})

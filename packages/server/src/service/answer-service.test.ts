@@ -15,7 +15,7 @@ import { createVisualArtifactRepo } from '../repo/visual-artifact-repo'
 import { fixedClock } from '../util/clock'
 import { createAnswerService } from './answer-service'
 
-function setup(settings: { getProjectRoot(): string | null } = { getProjectRoot: () => null }) {
+function setup(settings: { get(key: string): string | undefined; getProjectRoot(): string | null } = { get: () => undefined, getProjectRoot: () => null }) {
   const db = openMemoryDb()
   const clock = fixedClock('2026-08-05T00:00:00.000Z')
   const { rootNode } = createTreeRepo(db, clock).create('tree')
@@ -97,7 +97,11 @@ describe('AnswerService', () => {
   it('with a project root, runs a tool round then finalizes with only the final answer', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'vibe-answer-'))
     writeFileSync(join(dir, 'package.json'), '{"name":"fixture-project"}')
-    const context = setup({ getProjectRoot: () => dir })
+    // 关闭自动标签，避免标签生成的 provider 调用混入本测试的消息捕获。
+    const context = setup({
+      get: (key: string) => (key === 'tags.autoGenerate' ? 'false' : undefined),
+      getProjectRoot: () => dir,
+    })
 
     const captured: ChatMessage[][] = []
     const provider = createMockProvider({
@@ -145,7 +149,7 @@ describe('AnswerService', () => {
   })
 
   it('without a project root, uses the single-shot stream path', async () => {
-    const context = setup({ getProjectRoot: () => null })
+    const context = setup({ get: () => undefined, getProjectRoot: () => null })
     const chunks: string[] = []
     const node = await context.service.generate(
       {
@@ -196,7 +200,7 @@ describe('AnswerService', () => {
   it('stops after max tool rounds and finalizes via a single stream fallback', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'vibe-answer-'))
     writeFileSync(join(dir, 'package.json'), '{}')
-    const context = setup({ getProjectRoot: () => dir })
+    const context = setup({ get: () => undefined, getProjectRoot: () => dir })
 
     // 每一轮都返回 tool_call，永不收尾，触发 maxRounds 兜底。
     const toolScript: ToolEvent[][] = Array.from({ length: 12 }, (_, index) => [
@@ -214,5 +218,38 @@ describe('AnswerService', () => {
     )
     expect(node.status).toBe('complete')
     expect(prosemirrorToPlainText(node.ai_response)).toBe('兜底回复')
+  })
+})
+
+describe('auto tag generation', () => {
+  it('generates tags from provider.complete after the answer completes', async () => {
+    const context = setup()
+    const node = await context.service.generate(
+      {
+        nodeId: context.rootNode.id,
+        provider: createMockProvider({ chunks: ['["缓存设计", "Redis", "布隆过滤器"]'] }),
+        userInput: '讲缓存设计的取舍',
+      },
+      () => {},
+    )
+    expect(node.status).toBe('complete')
+    // autoTagNode 是 fire-and-forget，等一个宏任务让 Promise 落定。
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const stored = context.nodes.get(node.id)?.tags_json
+    expect(JSON.parse(stored ?? '[]')).toEqual(['缓存设计', 'Redis', '布隆过滤器'])
+  })
+
+  it('skips generation when tags.autoGenerate is disabled', async () => {
+    const context = setup({ get: (key: string) => (key === 'tags.autoGenerate' ? 'false' : undefined), getProjectRoot: () => null })
+    const node = await context.service.generate(
+      {
+        nodeId: context.rootNode.id,
+        provider: createMockProvider({ chunks: ['["不会被采用的标签"]'] }),
+        userInput: '讲缓存设计的取舍',
+      },
+      () => {},
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(context.nodes.get(node.id)?.tags_json ?? null).toBeNull()
   })
 })

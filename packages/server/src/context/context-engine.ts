@@ -1,4 +1,4 @@
-import type { ContextSegmentRow, NodeRow } from '@vibe/shared'
+import type { ContextSegmentRow, CorrectionMode, NodeRow } from '@vibe/shared'
 import {
   assembleContext,
   type AssembleContextDeps,
@@ -8,14 +8,19 @@ import {
   buildBranchSegments,
   type BranchSegmentInput,
 } from './build-branch-segments'
+import { assembleCorrectionContext } from './assemble-correction'
 import { resolveSegmentContent } from './resolve-segment'
 
 export type ContextEngineDeps = AssembleContextDeps & {
   nodes: AssembleContextDeps['nodes'] & {
+    getChildren(parentId: string): NodeRow[]
     getPathToRoot(nodeId: string): NodeRow[]
   }
   segments: AssembleContextDeps['segments'] & {
     add(input: BranchSegmentInput): ContextSegmentRow
+  }
+  settings?: {
+    get(key: string): string | undefined
   }
 }
 
@@ -23,6 +28,15 @@ export function createContextEngine(deps: ContextEngineDeps) {
   return {
     assemble(nodeId: string, currentUserInput: string): ChatMessage[] {
       return assembleContext(deps, nodeId, currentUserInput)
+    },
+    assembleForCorrection(input: {
+      direction: string
+      includeSubtree: boolean
+      mode: CorrectionMode
+      sourceNodeId: string
+      targetNodeId: string
+    }): ChatMessage[] {
+      return assembleCorrectionContext(deps, input)
     },
     buildBranch(input: {
       childNodeId: string

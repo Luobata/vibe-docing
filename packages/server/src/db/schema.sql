@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS trees (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   root_node_id TEXT,
+  folder TEXT,
   is_deleted INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   file_path TEXT,
   file_kind TEXT,
   content_hash TEXT,
+  tags_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -88,7 +90,9 @@ CREATE TABLE IF NOT EXISTS merges (
   source_node_id TEXT NOT NULL REFERENCES nodes(id),
   target_node_id TEXT NOT NULL REFERENCES nodes(id),
   conclusion TEXT NOT NULL,
-  landing_segment_id TEXT NOT NULL REFERENCES context_segments(id),
+  landing_segment_id TEXT REFERENCES context_segments(id),
+  kind TEXT NOT NULL DEFAULT 'summary',
+  direction TEXT,
   created_at TEXT NOT NULL
 );
 

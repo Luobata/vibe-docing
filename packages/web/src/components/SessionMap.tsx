@@ -5,6 +5,7 @@ import type { Api } from '../api/client'
 import { useGenerationTasks, useWorkbench } from '../state/workbench-store'
 import { generationBadgeState } from './SubdocTabs'
 import { Icon } from './Icon'
+import { formatRelativeTime } from './format-time'
 import { nodeTitle } from './TreePanel'
 import './SessionMap.css'
 
@@ -196,19 +197,7 @@ function plainTextSummary(content: string | null | undefined): string {
   return trimmed.replace(/[#>*`_|-]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-function formatRelativeTime(iso: string): string {
-  const time = Date.parse(iso)
-  if (!iso || Number.isNaN(time)) return ''
-  const diff = Date.now() - time
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`
-  return iso.slice(0, 10)
-}
-
-export function SessionMap({ onClose }: { onClose(): void }) {
-  const api = useApi()
+export function SessionMap({ onClose }: { onClose(): void }) {  const api = useApi()
   const nodesById = useWorkbench((state) => state.nodesById)
   const rootNodeId = useWorkbench((state) => state.rootNodeId)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
@@ -286,8 +275,9 @@ export function SessionMap({ onClose }: { onClose(): void }) {
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [edgeTip, setEdgeTip] = useState<{ text: string; x: number; y: number } | null>(null)
   // 图例：桌面默认展开、窄屏默认折叠；不持久化（每次打开地图重置）。
+  // 断点单一来源：全局 1023/767（与 Workbench.css 壳层一致）。
   const [legendOpen, setLegendOpen] = useState(
-    () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 960px)').matches,
+    () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 1024px)').matches,
   )
 
   const searchActive = query.trim().length >= 2
@@ -754,7 +744,9 @@ export function SessionMap({ onClose }: { onClose(): void }) {
               const toNode = effectiveById[merge.target_node_id]
               if (!fromNode || !toNode) return null
               const d = mergeEdgePath(fromNode, toNode)
-              const tip = `合并结论：${merge.conclusion.slice(0, 60)}${merge.conclusion.length > 60 ? '…' : ''}`
+              const correction = merge.kind === 'correction'
+              const detail = correction ? (merge.direction ?? '') : merge.conclusion
+              const tip = `${correction ? '合并说明' : '合并结论'}：${detail.slice(0, 60)}${detail.length > 60 ? '…' : ''}`
               return (
                 <g key={merge.id}>
                   <path
@@ -764,7 +756,12 @@ export function SessionMap({ onClose }: { onClose(): void }) {
                     onMouseLeave={() => setEdgeTip(null)}
                     onMouseMove={(event) => edgeTooltip(event, tip)}
                   />
-                  <path className="session-map-merge-edge" d={d} data-merge-id={merge.id} />
+                  <path
+                    className={`session-map-merge-edge${correction ? ' is-correction' : ''}`}
+                    d={d}
+                    data-merge-id={merge.id}
+                    data-merge-kind={merge.kind ?? 'summary'}
+                  />
                 </g>
               )
             })}

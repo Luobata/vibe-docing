@@ -10,7 +10,8 @@ describe('share renderer', () => {
     let root: ShareNode = { row: node('n7', 'n6', '# special <!--'), children: [] }
     for (let depth = 6; depth >= 0; depth--) root = { row: node(`n${depth}`, depth ? `n${depth - 1}` : null, `level ${depth}`), children: [root] }
     const markdown = renderShareMarkdown({ tree, root })
-    expect(markdown.match(/^# /gm)).toHaveLength(1)
+    expect(markdown.match(/^# /gm)).toHaveLength(2)
+    expect(markdown).toContain('\n# special <!--\n')
     expect(markdown).toContain('**Depth:** 7')
     expect(markdown).toContain('**Path:**')
     expect(markdown).toContain('branch:start')
@@ -83,5 +84,89 @@ describe('share renderer', () => {
     expect(output).toContain('**可视化**')
     expect(output).not.toContain('missing')
     expect(output).not.toContain('visual-scene')
+  })
+
+  it('preserves markdown source text and renders its code and headings like the web renderer', () => {
+    const fixture = [
+      '```ts',
+      'const digits = /\\d+/',
+      "const path = 'C:\\path'",
+      '# code comment',
+      '```',
+      '',
+      '### 多级标题',
+      '',
+      '公式：\\alpha',
+    ].join('\n')
+    const root: ShareNode = {
+      row: { ...node('markdown', null, 'Markdown'), document_content: fixture },
+      children: [],
+    }
+    const document = { tree: { ...tree, root_node_id: root.row.id }, root }
+
+    const output = renderShareMarkdown(document)
+    expect(output).toContain(fixture)
+    expect(output).not.toContain('\\\\d+')
+    expect(output).not.toContain('C:\\\\path')
+    expect(output).not.toContain('\\# code comment')
+
+    const shareHtml = renderShareHtml(document, '/share/t.md')
+    const codeBlock = (html: string) => html.match(/<pre><code class="language-ts">([\s\S]*?)<\/code><\/pre>/)?.[1]
+    expect(codeBlock(shareHtml)).toBe("const digits = /\\d+/\nconst path = 'C:\\path'\n# code comment\n")
+    expect(shareHtml).toContain('<h3>多级标题</h3>')
+  })
+
+  it('renders a derived child body only in the child branch section', () => {
+    const childBody = 'DERIVED_BODY_APPEARS_ONCE'
+    const child: ShareNode = {
+      row: { ...node('child', 'root', '派生节点'), document_content: childBody },
+      children: [],
+    }
+    const root: ShareNode = {
+      row: { ...node('root', null, '根节点'), document_content: '' },
+      children: [child],
+    }
+    const output = renderShareMarkdown({
+      tree: { ...tree, root_node_id: root.row.id },
+      root,
+      annotations: new Map([[
+        root.row.id,
+        [{ childNodeId: child.row.id, kind: 'selection', note: null, quotedText: '引用' }],
+      ]]),
+    })
+
+    expect(output).toContain('派生子节点：派生节点')
+    expect(output.match(new RegExp(childBody, 'g'))).toHaveLength(1)
+  })
+
+  it('normalizes pathological fences and loose tables consistently with the web renderer', () => {
+    const fixture = [
+      '```txt',
+      'alpha',
+      '',
+      'beta',
+      '',
+      'gamma',
+      '',
+      'delta',
+      '```',
+      '表格如下：',
+      '| A | B |',
+      '',
+      '| --- | --- |',
+      '',
+      '| 1 | 2 |',
+    ].join('\n')
+    const root: ShareNode = {
+      row: { ...node('normalized', null, '规整'), document_content: fixture },
+      children: [],
+    }
+    const document = { tree: { ...tree, root_node_id: root.row.id }, root }
+    const shareHtml = renderShareHtml(document, '/share/t.md')
+    const codeBlock = (html: string) => html.match(/<pre><code class="language-txt">([\s\S]*?)<\/code><\/pre>/)?.[1]
+    const tableCells = (html: string) => [...html.matchAll(/<t[dh]>([\s\S]*?)<\/t[dh]>/g)].map((match) => match[1])
+
+    expect(codeBlock(shareHtml)).toBe('alpha\nbeta\ngamma\ndelta\n')
+    expect(tableCells(shareHtml)).toEqual(['A', 'B', '1', '2'])
   })
 })

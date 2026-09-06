@@ -1,8 +1,9 @@
 import type { DecoratedApp } from '../app'
-import { resolveProvider } from '../provider/registry'
+import { ProviderConfigError, resolveProvider } from '../provider/registry'
 import {
   createMergeService,
   InvalidMergeError,
+  MergeAlreadyExistsError,
   MergeNotFoundError,
 } from '../service/merge-service'
 
@@ -32,14 +33,22 @@ export function registerMergeRoutes(app: DecoratedApp): void {
         targetNodeId,
       })
     } catch (error) {
+      if (error instanceof ProviderConfigError) {
+        return reply.code(503).send({ code: 'PROVIDER_CONFIG', error: error.message })
+      }
       if (error instanceof MergeNotFoundError) {
         return reply.code(404).send({ error: error.message })
       }
       if (error instanceof InvalidMergeError) {
         return reply.code(400).send({ error: error.message })
       }
+      if (error instanceof MergeAlreadyExistsError) {
+        return reply.code(409).send({
+          code: 'MERGE_ALREADY_EXISTS',
+          error: error.message,
+        })
+      }
       throw error
     }
   })
 }
-

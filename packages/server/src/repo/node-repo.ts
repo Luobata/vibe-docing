@@ -1,4 +1,4 @@
-import type { NodeRow, NodeStatus } from '@vibe/shared'
+import { sanitizeTagList, type NodeRow, type NodeStatus } from '@vibe/shared'
 import type { Db } from '../db/connection'
 import type { Clock } from '../util/clock'
 import { newId } from '../util/ids'
@@ -123,6 +123,17 @@ export function createNodeRepo(db: Db, clock: Clock) {
       userInput: patch.userInput,
     })
   }
+
+  function updateTags(id: string, tags: unknown[]): NodeRow {
+    const clean = sanitizeTagList(tags)
+    db.prepare('UPDATE nodes SET tags_json = ?, updated_at = ? WHERE id = ?').run(
+      clean.length > 0 ? JSON.stringify(clean) : null,
+      clock.now(),
+      id,
+    )
+    return get(id)!
+  }
+
 
   function updateDocumentContent(input: {
     baseRevision: number
@@ -250,6 +261,7 @@ export function createNodeRepo(db: Db, clock: Clock) {
     updateContent,
     updateDocumentContent,
     updateGeneration,
+    updateTags,
     softDelete,
     restore,
     listDeleted,

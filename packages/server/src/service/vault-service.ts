@@ -7,9 +7,10 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Db } from '../db/connection'
 import type { createNodeRepo } from '../repo/node-repo'
@@ -145,6 +146,51 @@ export function createVaultService(options: {
     return options.nodes.setVaultFile({ contentHash, fileKind: kind, filePath, id: node.id, vaultRoot })
   }
 
+  /** 目录名清洗：拆段、去 ./..、剔非法字符、限 6 层。空串 = 库根目录。 */
+  function sanitizeDirectory(input: string): string {
+    return input
+      .split(/[\\/]+/)
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
+      .map((segment) => segment.replace(/[^\p{L}\p{N}_\- ]/gu, '').trim())
+      .filter((segment) => segment.length > 0)
+      .slice(0, 6)
+      .join('/')
+  }
+
+  /** 把笔记文件移动到指定目录（空串 = 根目录）。碰撞时追加节点短 id 后缀。 */
+  function moveNodeFile(node: NodeRow, directory: string): NodeRow {
+    const vaultRoot = node.vault_root || root()
+    const kind = kindFor(node)
+    const currentPath = node.file_path || defaultPath(node, kind)
+    const name = basename(currentPath)
+    const safeDir = sanitizeDirectory(directory)
+    let target = safeDir ? `${safeDir}/${name}` : name
+    if (target !== currentPath) {
+      const occupied = options.db
+        .prepare('SELECT id FROM nodes WHERE vault_root = ? AND file_path = ? AND id != ?')
+        .get(vaultRoot, target, node.id)
+      if (occupied) {
+        const dot = name.lastIndexOf('.')
+        const stem = dot > 0 ? name.slice(0, dot) : name
+        const extension = dot > 0 ? name.slice(dot) : ''
+        const suffixed = `${stem}-${node.id.slice(0, 6)}${extension}`
+        target = safeDir ? `${safeDir}/${suffixed}` : suffixed
+      }
+    }
+
+    let source = readSource(vaultRoot, currentPath)
+    if (source === undefined) {
+      const materialized = ensureNodeFile(node)
+      source = readSource(materialized.vault_root ?? vaultRoot, materialized.file_path ?? currentPath) ?? ''
+    }
+    if (target === currentPath) return options.nodes.setVaultFile({ contentHash: hash(source), fileKind: kind, filePath: target, id: node.id, vaultRoot })
+
+    writeSource(vaultRoot, target, source)
+    try { rmSync(absolutePath(vaultRoot, currentPath)) } catch { /* 旧文件缺失时静默 */ }
+    return options.nodes.setVaultFile({ contentHash: hash(source), fileKind: kind, filePath: target, id: node.id, vaultRoot })
+  }
+
   function scanFiles(vaultRoot: string): Array<{ filePath: string; kind: FileKind; source: string }> {
     const files: Array<{ filePath: string; kind: FileKind; source: string }> = []
     const visit = (directory: string, depth: number): void => {
@@ -224,5 +270,5 @@ export function createVaultService(options: {
     return { imported, path: vaultRoot, scanned: files.length }
   }
 
-  return { ensureNodeFile, hydrateNode, root, sync, writeNode }
+  return { ensureNodeFile, hydrateNode, moveNodeFile, root, sync, writeNode }
 }

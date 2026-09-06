@@ -231,7 +231,7 @@
 }
 
 /* ---- 移动端 ---- */
-@media (max-width: 959px) {
+@media (max-width: 1023px) { /* 断点单一来源：全局 1023/767 */
   .session-map-toolbar {
     flex-wrap: wrap;
     gap: 8px;
@@ -428,9 +428,14 @@
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
+.session-map-merge-edge.is-correction {
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
 
 /* ---- 移动端：搜索独占一行 ---- */
-@media (max-width: 959px) {
+@media (max-width: 1023px) { /* 断点单一来源：全局 1023/767 */
   .session-map-search { order: 3; flex-basis: 100%; max-width: none; }
 }
 

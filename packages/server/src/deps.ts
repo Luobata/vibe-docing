@@ -42,8 +42,8 @@ export function createDeps(options: { clock?: Clock; db: Db; vaultPath?: string 
   const nodes = createNodeRepo(options.db, clock)
   const segments = createSegmentRepo(options.db)
   const versions = createVersionRepo(options.db, clock)
-  const context = createContextEngine({ nodes, segments, versions })
   const settings = createSettingsRepo(options.db)
+  const context = createContextEngine({ nodes, segments, settings, versions })
   const shares = createShareRepo(options.db, clock)
   const visualArtifacts = createVisualArtifactRepo(options.db, clock)
   const memoryVault = options.db.name === ':memory:'

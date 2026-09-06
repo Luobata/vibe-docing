@@ -59,6 +59,50 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<td>1</td>')
   })
 
+  it('preserves the share renderer fixture inside code and renders its heading', () => {
+    const fixture = [
+      '```ts',
+      'const digits = /\\d+/',
+      "const path = 'C:\\path'",
+      '# code comment',
+      '```',
+      '',
+      '### 多级标题',
+      '',
+      '公式：\\alpha',
+    ].join('\n')
+    const html = renderMarkdown(fixture)
+
+    expect(html).toContain("<pre><code class=\"language-ts\">const digits = /\\d+/\nconst path = 'C:\\path'\n# code comment\n</code></pre>")
+    expect(html).toContain('<h3>多级标题</h3>')
+    expect(html).toContain('<p>公式：\\alpha</p>')
+  })
+
+  it('renders the share normalization fixture as compact code and one table', () => {
+    const fixture = [
+      '```txt',
+      'alpha',
+      '',
+      'beta',
+      '',
+      'gamma',
+      '',
+      'delta',
+      '```',
+      '表格如下：',
+      '| A | B |',
+      '',
+      '| --- | --- |',
+      '',
+      '| 1 | 2 |',
+    ].join('\n')
+    const html = renderMarkdown(fixture)
+    const tableCells = [...html.matchAll(/<t[dh]>([\s\S]*?)<\/t[dh]>/g)].map((match) => match[1])
+
+    expect(html).toContain('<pre><code class="language-txt">alpha\nbeta\ngamma\ndelta\n</code></pre>')
+    expect(tableCells).toEqual(['A', 'B', '1', '2'])
+  })
+
   it('does not pass through raw inline HTML (no XSS injection)', () => {
     const html = renderMarkdown('普通 <img src=x onerror=alert(1)> 文本')
     expect(html).not.toContain('<img')

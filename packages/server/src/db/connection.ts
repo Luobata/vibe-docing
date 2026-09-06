@@ -39,6 +39,9 @@ function migrate(db: Db): void {
   if (!treeColumns.some((column) => column.name === 'is_deleted')) {
     db.exec('ALTER TABLE trees ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')
   }
+  if (!treeColumns.some((column) => column.name === 'folder')) {
+    db.exec('ALTER TABLE trees ADD COLUMN folder TEXT')
+  }
   const annotationColumns = db.prepare('PRAGMA table_info(annotations)').all() as Array<{ name: string }>
   if (!annotationColumns.some((column) => column.name === 'visual_target_json')) {
     db.exec('ALTER TABLE annotations ADD COLUMN visual_target_json TEXT')
@@ -72,6 +75,9 @@ function migrate(db: Db): void {
   if (!nodeColumns.some((column) => column.name === 'document_content')) {
     db.exec('ALTER TABLE nodes ADD COLUMN document_content TEXT')
   }
+  if (!nodeColumns.some((column) => column.name === 'tags_json')) {
+    db.exec('ALTER TABLE nodes ADD COLUMN tags_json TEXT')
+  }
 
   const versionColumns = db.prepare('PRAGMA table_info(node_versions)').all() as Array<{ name: string }>
   if (!versionColumns.some((column) => column.name === 'edit_session_id')) {
@@ -102,6 +108,8 @@ function migrate(db: Db): void {
       WHERE edit_session_id IS NOT NULL;
   `)
 
+  migrateMerges(db)
+
   // Kept here as well as schema.sql so an older database upgrades safely.
   db.exec(`
     CREATE TABLE IF NOT EXISTS document_shares (
@@ -131,6 +139,44 @@ function migrate(db: Db): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_node
       ON document_shares(node_id) WHERE is_enabled = 1;
   `)
+}
+
+function migrateMerges(db: Db): void {
+  const columns = db.prepare('PRAGMA table_info(merges)').all() as Array<{
+    name: string
+    notnull: 0 | 1
+  }>
+  const hasKind = columns.some((column) => column.name === 'kind')
+  const hasDirection = columns.some((column) => column.name === 'direction')
+  const landingSegment = columns.find((column) => column.name === 'landing_segment_id')
+  if (hasKind && hasDirection && landingSegment?.notnull === 0) return
+
+  const kindValue = hasKind ? "COALESCE(kind, 'summary')" : "'summary'"
+  const directionValue = hasDirection ? 'direction' : 'NULL'
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE merges RENAME TO merges_before_correction;
+      CREATE TABLE merges (
+        id TEXT PRIMARY KEY,
+        source_node_id TEXT NOT NULL REFERENCES nodes(id),
+        target_node_id TEXT NOT NULL REFERENCES nodes(id),
+        conclusion TEXT NOT NULL,
+        landing_segment_id TEXT REFERENCES context_segments(id),
+        kind TEXT NOT NULL DEFAULT 'summary',
+        direction TEXT,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO merges (
+        id, source_node_id, target_node_id, conclusion,
+        landing_segment_id, kind, direction, created_at
+      )
+      SELECT
+        id, source_node_id, target_node_id, conclusion,
+        landing_segment_id, ${kindValue}, ${directionValue}, created_at
+      FROM merges_before_correction;
+      DROP TABLE merges_before_correction;
+    `)
+  })()
 }
 
 export function openMemoryDb(): Db {

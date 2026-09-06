@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 export function VersionPanel({ nodeId }: { nodeId: string }) {
   const api = useApi()
   const upsertNode = useWorkbench((state) => state.upsertNode)
+  const correctionRefreshTick = useWorkbench((state) => state.mergeRefreshTick)
   const [busyVersion, setBusyVersion] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,7 +29,7 @@ export function VersionPanel({ nodeId }: { nodeId: string }) {
       .catch(() => { if (active) setError('版本历史加载失败。') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [api, nodeId])
+  }, [api, correctionRefreshTick, nodeId])
 
   async function revert(versionNo: number): Promise<void> {
     setBusyVersion(versionNo)
@@ -113,17 +114,13 @@ export function VersionPanel({ nodeId }: { nodeId: string }) {
         </ol>
       )}
       {diffVersion !== null && (
-        <section aria-live="polite" className="version-diff">
-          <header>
-            <strong>版本 {diffVersion} → 当前版本</strong>
-            <span>绿色为新增，红色为删除</span>
-          </header>
-          {diffLoading === diffVersion ? <p>正在对比…</p> : diffError ? <p role="alert">{diffError}</p> : (
-            <pre aria-label={`版本 ${diffVersion} 的变化`}>
-              {diffLines.map((line, index) => <span data-type={line.type} key={`${index}-${line.type}`}>{line.type === 'add' ? '+ ' : line.type === 'del' ? '− ' : '  '}{line.text || ' '}{'\n'}</span>)}
-            </pre>
-          )}
-        </section>
+        <LineDiffView
+          ariaLabel={`版本 ${diffVersion} 的变化`}
+          error={diffError}
+          lines={diffLines}
+          loading={diffLoading === diffVersion}
+          title={`版本 ${diffVersion} → 当前版本`}
+        />
       )}
       {error && !pendingVersion && <p role="alert">{error}</p>}
       {pendingVersion && (
@@ -146,7 +143,36 @@ export function VersionPanel({ nodeId }: { nodeId: string }) {
   )
 }
 
+export function LineDiffView({
+  ariaLabel,
+  error,
+  lines,
+  loading = false,
+  title,
+}: {
+  ariaLabel: string
+  error?: string | null
+  lines: VersionDiffLine[]
+  loading?: boolean
+  title: string
+}) {
+  return (
+    <section aria-live="polite" className="version-diff">
+      <header>
+        <strong>{title}</strong>
+        <span>绿色为新增，红色为删除</span>
+      </header>
+      {loading ? <p>正在对比…</p> : error ? <p role="alert">{error}</p> : (
+        <pre aria-label={ariaLabel}>
+          {lines.map((line, index) => <span data-type={line.type} key={`${index}-${line.type}`}>{line.type === 'add' ? '+ ' : line.type === 'del' ? '− ' : '  '}{line.text || ' '}{'\n'}</span>)}
+        </pre>
+      )}
+    </section>
+  )
+}
+
 const CHANGE_KIND_LABELS: Record<NodeVersionRow['change_kind'], string> = {
+  correction: '引导合并',
   edit: '编辑保存',
   merge: '合并内容',
   regenerate: '重新生成',

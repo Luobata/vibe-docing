@@ -17,6 +17,27 @@ function validProseMirror(value: string): boolean {
 }
 
 export function registerNodeEditRoutes(app: DecoratedApp): void {
+  app.put('/api/nodes/:id/tags', async (request, reply) => {
+    const node = app.deps.nodes.get(request.params.id)
+    if (!node || node.is_deleted === 1) return reply.code(404).send({ error: 'node not found' })
+    const body = recordBody(request.body)
+    if (!body || !Array.isArray(body.tags)) return reply.code(400).send({ error: 'tags must be an array' })
+    const updated = app.deps.nodes.updateTags(node.id, body.tags as unknown[])
+    return { node: updated }
+  })
+
+  app.post('/api/nodes/:id/move', async (request, reply) => {
+    const node = app.deps.nodes.get(request.params.id)
+    if (!node || node.is_deleted === 1) return reply.code(404).send({ error: 'node not found' })
+    const body = recordBody(request.body)
+    const directory = body?.directory
+    if (typeof directory !== 'string' || directory.length > 200) {
+      return reply.code(400).send({ error: 'invalid directory' })
+    }
+    const moved = app.deps.vault.moveNodeFile(node, directory)
+    return { node: app.deps.vault.hydrateNode(moved) }
+  })
+
   app.post('/api/nodes/:id/children', async (request, reply) => {
     const parent = app.deps.nodes.get(request.params.id)
     if (!parent || parent.is_deleted === 1) {

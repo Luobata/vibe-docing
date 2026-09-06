@@ -54,6 +54,7 @@ describe('DocumentEditor', () => {
       </ApiProvider>,
     )
 
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     fireEvent.click(screen.getByRole('button', { name: '粗体' }))
     await act(async () => { await ref.current?.flush() })
 
@@ -72,6 +73,9 @@ describe('DocumentEditor', () => {
         <DocumentEditor annotations={[]} node={documentNode()} onSaved={() => {}} onSelect={() => {}} />
       </ApiProvider>,
     )
+    // 有内容的笔记默认预览，手动切到编辑，再切回预览。
+    expect(screen.getByRole('heading', { name: '可编辑正文' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     expect(screen.getByLabelText('Markdown 源码')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '预览' }))
     expect(screen.getByRole('heading', { name: '可编辑正文' })).toBeInTheDocument()
@@ -108,6 +112,7 @@ describe('DocumentEditor', () => {
         <DocumentEditor annotations={[]} node={local} onSaved={() => {}} onSelect={() => {}} ref={ref} />
       </ApiProvider>,
     )
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     fireEvent.click(screen.getByRole('button', { name: '粗体' }))
     await act(async () => { try { await ref.current?.flush() } catch {} })
     fireEvent.click(screen.getByRole('button', { name: '加载磁盘版本' }))
@@ -127,6 +132,7 @@ describe('DocumentEditor', () => {
         <DocumentEditor annotations={[]} node={node} onSaved={() => {}} onSelect={() => {}} />
       </ApiProvider>,
     )
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     fireEvent.click(screen.getByRole('button', { name: '粗体' }))
     await act(async () => { window.dispatchEvent(new Event('beforeunload')) })
     await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledWith(
@@ -360,6 +366,7 @@ describe('DocumentEditor CodeMirror Notion 主题', () => {
         <DocumentEditor annotations={[]} node={documentNode()} onSaved={() => {}} onSelect={() => {}} />
       </ApiProvider>,
     )
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     // 编辑态 CodeMirror 已挂载，且无 IDE 式行号/折叠栏 DOM。
     expect(container.querySelector('.cm-editor')).not.toBeNull()
     expect(container.querySelector('.cm-lineNumbers')).toBeNull()
@@ -379,6 +386,7 @@ describe('DocumentEditor 围栏代码行装饰', () => {
         />
       </ApiProvider>,
     )
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
     const codeLines = container.querySelectorAll('.cm-code-line')
     expect(codeLines.length).toBeGreaterThanOrEqual(4)
     expect(container.querySelectorAll('.cm-code-line.cm-code-fence')).toHaveLength(2)

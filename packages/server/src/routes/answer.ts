@@ -1,5 +1,6 @@
 import type { DecoratedApp } from '../app'
-import { resolveProvider } from '../provider/registry'
+import { ProviderConfigError, resolveProvider } from '../provider/registry'
+import type { Provider } from '../provider/types'
 
 function userInputFrom(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return undefined
@@ -15,6 +16,19 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
     const existing = app.deps.nodes.get(request.params.id)
     if (!existing || existing.is_deleted === 1) {
       return reply.code(404).send({ error: 'node not found' })
+    }
+
+    let provider: Provider
+    try {
+      provider = resolveProvider(
+        { settings: app.deps.settings },
+        app.deps.providerOverride,
+      )
+    } catch (error) {
+      if (error instanceof ProviderConfigError) {
+        return reply.code(503).send({ code: 'PROVIDER_CONFIG', error: error.message })
+      }
+      throw error
     }
 
     reply.hijack()
@@ -40,10 +54,6 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
     }
 
     try {
-      const provider = resolveProvider(
-        { settings: app.deps.settings },
-        app.deps.providerOverride,
-      )
       const node = await app.deps.answer.generate(
         { nodeId: existing.id, provider, signal: controller.signal, userInput },
         (text) => send({ type: 'chunk', text }),

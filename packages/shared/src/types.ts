@@ -22,7 +22,7 @@ export const SEGMENT_TYPES = [
 ] as const
 export type SegmentType = (typeof SEGMENT_TYPES)[number]
 
-export const CHANGE_KINDS = ['edit', 'merge', 'regenerate'] as const
+export const CHANGE_KINDS = ['edit', 'merge', 'regenerate', 'correction'] as const
 export type ChangeKind = (typeof CHANGE_KINDS)[number]
 
 export const ROUTE_TARGETS = [
@@ -36,6 +36,8 @@ export interface TreeRow {
   id: string
   title: string
   root_node_id: string | null
+  /** 笔记库所属文件夹（斜杠分隔路径）；null = 未分组。 */
+  folder?: string | null
   is_deleted: 0 | 1
   created_at: string
   updated_at: string
@@ -66,6 +68,34 @@ export interface NodeRow {
   vault_root?: string | null
   file_kind?: 'markdown' | 'canvas' | 'base' | null
   content_hash?: string | null
+  /** JSON 字符串数组：AI 自动生成、用户可编辑的标签。 */
+  tags_json?: string | null
+}
+
+/** 标签清洗：去空白/截 16 字/去重/限 8 个。生成与编辑两侧共用同一纪律。 */
+export function sanitizeTagList(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of tags) {
+    if (typeof raw !== 'string') continue
+    const tag = raw.trim().replace(/\s+/g, ' ').slice(0, 16)
+    if (!tag || seen.has(tag)) continue
+    seen.add(tag)
+    out.push(tag)
+    if (out.length >= 8) break
+  }
+  return out
+}
+
+/** 解析节点 tags_json；非法或缺失返回空数组。 */
+export function parseNodeTags(tagsJson: string | null | undefined): string[] {
+  if (!tagsJson) return []
+  try {
+    return sanitizeTagList(JSON.parse(tagsJson))
+  } catch {
+    return []
+  }
 }
 
 export interface AnnotationRow {
@@ -145,9 +175,40 @@ export interface MergeRow {
   source_node_id: string
   target_node_id: string
   conclusion: string
-  landing_segment_id: string
+  landing_segment_id: string | null
+  /** Present on migrated/current APIs; optional keeps cached pre-migration graph payloads readable. */
+  kind?: 'summary' | 'correction'
+  direction?: string | null
   created_at: string
 }
+
+export type CorrectionMode = 'patch' | 'append' | 'rewrite'
+
+export interface CorrectionPatchPair {
+  quote: string
+  replacement: string
+}
+
+export type CorrectDraft =
+  | {
+      mode: 'patch'
+      pairs: CorrectionPatchPair[]
+      unmatched: {
+        heading: '纠正附注'
+        strategy: 'append-note'
+      }
+    }
+  | {
+      mode: 'append'
+      section: {
+        title: string
+        body: string
+      }
+    }
+  | {
+      fullText: string
+      mode: 'rewrite'
+    }
 
 export interface VisualArtifactRow {
   artifact_id: string

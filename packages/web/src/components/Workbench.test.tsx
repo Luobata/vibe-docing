@@ -115,7 +115,7 @@ describe('Workbench', () => {
     expect(screen.getByTestId('main-doc')).toHaveTextContent('root')
     const scroll = screen.getByTestId('conversation-scroll')
     scroll.scrollTop = 360
-    fireEvent.click(screen.getByLabelText('promote'))
+    fireEvent.click(screen.getByLabelText('设为主文档'))
 
     expect(scroll.scrollTop).toBe(0)
     expect(screen.getByTestId('main-doc')).toHaveTextContent('child')

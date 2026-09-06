@@ -37,7 +37,8 @@ describe('document sharing', () => {
     expect(markdown.headers['content-type']).toContain('text/markdown')
     expect(markdown.body).toContain('edited live')
     expect(markdown.body).toContain('child answer')
-    expect(markdown.body.match(/^# /gm)).toHaveLength(1)
+    expect(markdown.body.match(/^# /gm)).toHaveLength(2)
+    expect(markdown.body).toContain('\n# question\n')
     expect(markdown.body).not.toContain(rootNode.id)
     const json = await app.inject({ method: 'GET', url: first.jsonUrl })
     expect(json.headers['content-type']).toContain('application/json')
@@ -112,6 +113,35 @@ describe('document sharing', () => {
     expect((await app.inject({ method: 'DELETE', url: `/api/nodes/${child.id}/share` })).statusCode).toBe(200)
     expect((await app.inject({ method: 'GET', url: childShare.url })).statusCode).toBe(404)
     expect((await app.inject({ method: 'GET', url: parentShare.url })).statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('publishes committed corrective content in Markdown and HTML', async () => {
+    const app = buildApp()
+    const { tree, rootNode } = (await app.inject({
+      method: 'POST', payload: { title: 'Correction share' }, url: '/api/trees',
+    })).json()
+    const source = app.deps.nodes.create({
+      parentId: rootNode.id, treeId: tree.id, userInput: '发现方向错误',
+    })
+    const share = (await app.inject({
+      method: 'POST', url: `/api/nodes/${rootNode.id}/share`,
+    })).json().share
+
+    const committed = await app.inject({
+      method: 'POST',
+      payload: { direction: '改用验证后的结论', documentContent: '# 已纠正主线\n\n这是采纳后的唯一正文。' },
+      url: `/api/nodes/${source.id}/correct/commit`,
+    })
+    expect(committed.statusCode).toBe(200)
+    expect(committed.json().merge.kind).toBe('correction')
+
+    const markdown = await app.inject({ method: 'GET', url: share.markdownUrl })
+    const html = await app.inject({ method: 'GET', url: share.url })
+    expect(markdown.body).toContain('# 已纠正主线')
+    expect(markdown.body).toContain('这是采纳后的唯一正文。')
+    expect(html.body).toContain('已纠正主线')
+    expect(html.body).toContain('这是采纳后的唯一正文。')
     await app.close()
   })
 

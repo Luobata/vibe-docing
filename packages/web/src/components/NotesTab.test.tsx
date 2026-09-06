@@ -35,7 +35,7 @@ describe('NotesTab create', () => {
   it('submits a new note on Enter and clears', () => {
     const onCreateNote = vi.fn()
     render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={onCreateNote} />)
-    const input = screen.getByLabelText('new-note-input')
+    const input = screen.getByLabelText('新笔记内容')
     fireEvent.change(input, { target: { value: '一条新笔记' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onCreateNote).toHaveBeenCalledWith('一条新笔记')
@@ -44,7 +44,7 @@ describe('NotesTab create', () => {
 
   it('grows the note composer with its content up to the visual cap', () => {
     render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={() => {}} />)
-    const input = screen.getByLabelText('new-note-input') as HTMLTextAreaElement
+    const input = screen.getByLabelText('新笔记内容') as HTMLTextAreaElement
     Object.defineProperty(input, 'scrollHeight', { configurable: true, value: 120 })
 
     fireEvent.change(input, { target: { value: '第一行\n第二行\n第三行' } })
@@ -55,7 +55,7 @@ describe('NotesTab create', () => {
   it('disables the input and skips submit when there is no document', () => {
     const onCreateNote = vi.fn()
     render(<NotesTab annotations={[]} canCreateNote={false} onJump={() => {}} onCreateNote={onCreateNote} />)
-    const input = screen.getByLabelText('new-note-input')
+    const input = screen.getByLabelText('新笔记内容')
     expect(input).toBeDisabled()
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onCreateNote).not.toHaveBeenCalled()
@@ -64,7 +64,7 @@ describe('NotesTab create', () => {
   it('keeps the draft attachment when confirmed save fails', async () => {
     const onCreateNote = vi.fn().mockRejectedValue(new Error('failed'))
     render(<NotesTab annotations={[]} canCreateNote={true} onJump={() => {}} onCreateNote={onCreateNote} />)
-    const input = screen.getByLabelText('new-note-input')
+    const input = screen.getByLabelText('新笔记内容')
     fireEvent.change(input, { target: { value: '不能丢的笔记' } })
     fireEvent.paste(input, { clipboardData: { files: [new File(['x'], 'note.png', { type: 'image/png' })], items: [] } })
     fireEvent.keyDown(input, { key: 'Enter' })

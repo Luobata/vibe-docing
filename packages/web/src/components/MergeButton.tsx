@@ -13,10 +13,12 @@ export function MergeButton({
 }) {
   const api = useApi()
   const mergeState = useWorkbench((s) => s.mergeStateByNodeId[sourceNodeId])
+  const persistedMerge = useWorkbench((s) => s.treeMerges.some((merge) =>
+    merge.source_node_id === sourceNodeId && merge.target_node_id === targetNodeId))
   const setMergeState = useWorkbench((s) => s.setMergeState)
   const [error, setError] = useState<string | null>(null)
 
-  if (mergeState === 'merged') return <span className="merge-toast" role="status">已合并</span>
+  if (persistedMerge || mergeState === 'merged') return <span className="merge-toast" role="status">已合并</span>
   const busy = mergeState === 'merging'
   return (
     <div className="merge-action">

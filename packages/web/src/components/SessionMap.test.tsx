@@ -414,6 +414,31 @@ describe('SessionMap Round 3 interactions', () => {
     expect(document.querySelector('.session-map-merge-edge')?.getAttribute('class')).not.toMatch(/is-active/)
   })
 
+  it('renders guided merge arcs distinctly with an instruction tooltip', () => {
+    act(() => useWorkbench.getState().loadTree({
+      merges: [{
+        conclusion: '',
+        created_at: '',
+        direction: '先验证事实，再调整结论',
+        id: 'correction-1',
+        kind: 'correction',
+        landing_segment_id: null,
+        source_node_id: 'leaf',
+        target_node_id: 'root',
+      }],
+      nodes: [node('root', null), node('leaf', 'root')],
+      rootNodeId: 'root',
+      treeId: 't',
+    }))
+    render(<SessionMap onClose={() => {}} />)
+
+    const edge = document.querySelector('.session-map-merge-edge.is-correction')
+    expect(edge).toHaveAttribute('data-merge-kind', 'correction')
+    const hit = edge?.closest('g')?.querySelector('.session-map-edge-hit')
+    fireEvent.mouseEnter(hit as Element, { clientX: 10, clientY: 10 })
+    expect(document.querySelector('.session-map-edge-tip')).toHaveTextContent('合并说明：先验证事实，再调整结论')
+  })
+
   it('drags a card beyond 4px to reposition and persists per tree; short drags stay clicks', () => {
     const onClose = vi.fn()
     render(<SessionMap onClose={onClose} />)

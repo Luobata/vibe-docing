@@ -88,7 +88,7 @@ export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
         {pendingNote && <ImageDiscardConfirm busy={submitting} onCancel={() => setPendingNote(null)} onConfirm={() => { void commit(pendingNote, true) }} returnFocusRef={inputRef} />}
         {submitError && <p className="inline-error image-submit-error" role="alert">{submitError}</p>}
         <textarea
-          aria-label="new-note-input"
+          aria-label="新笔记内容"
           disabled={!canCreateNote || submitting}
           onChange={(event) => setValue(event.target.value)}
           onDrop={handleDrop}
@@ -110,7 +110,7 @@ export function NotesTab({ annotations, onJump, onCreateNote, canCreateNote }: {
                 key={n.id}
               >
                 <button onClick={() => onJump(n.id)} type="button">
-                  {n.quoted_text && <blockquote>{n.quoted_text}</blockquote>}
+                  {n.quoted_text && <span className="note-quote">{n.quoted_text}</span>}
                   {n.visual_target && <span className="note-context">可视化 · {n.visual_target.target === 'whole' ? '整图' : '图中元素'}</span>}
                   <span className="note-body">{n.note}</span>
                 </button>

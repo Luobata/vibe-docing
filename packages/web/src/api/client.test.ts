@@ -44,6 +44,25 @@ describe('api client', () => {
     )
   })
 
+  it('posts correction drafts and commits to their source-scoped endpoints', async () => {
+    const fetchImpl = vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.endsWith('/commit')
+        ? { merge: { id: 'm1' }, node: { id: 'parent' } }
+        : { mode: 'patch', pairs: [{ quote: '旧', replacement: '新' }], unmatched: { heading: '纠正附注', strategy: 'append-note' } },
+    ), { headers: { 'content-type': 'application/json' }, status: 200 })) as unknown as typeof fetch
+    const api = createApi({ fetchImpl })
+
+    await api.correct('source', { direction: '改正', includeSubtree: true, mode: 'patch' })
+    await api.commitCorrection('source', { direction: '改正', documentContent: '新正文' })
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, '/api/nodes/source/correct', expect.objectContaining({
+      body: JSON.stringify({ direction: '改正', includeSubtree: true, mode: 'patch' }), method: 'POST',
+    }))
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, '/api/nodes/source/correct/commit', expect.objectContaining({
+      body: JSON.stringify({ direction: '改正', documentContent: '新正文' }), method: 'POST',
+    }))
+  })
+
   it('saves semantic document content with revision metadata', async () => {
     let request: RequestInit | undefined
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {

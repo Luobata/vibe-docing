@@ -1,5 +1,5 @@
 import { plainTextToProseMirror, type AnnotationRow, type NodeRow } from '@vibe/shared'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useApi } from '../api/context'
 import {
   generationTaskKeys,
@@ -11,7 +11,7 @@ import {
 } from '../state/workbench-store'
 import { DocView } from './DocView'
 import { Icon } from './Icon'
-import { MergeButton } from './MergeButton'
+import { CorrectiveMergeButton } from './CorrectiveMergeButton'
 import { nodeTitle } from './TreePanel'
 import { scrollMainDocumentToTop, transitionDocument } from '../flow/document-transition'
 import { isSelectionSource } from './subdoc-classification'
@@ -68,7 +68,7 @@ export function GenerationBadge({ state }: { state: GenerationBadgeState }) {
       data-task-key={state.key}
     >
       <span aria-hidden="true" className="subdoc-task-icon">
-        {state.status === 'streaming' ? null : <Icon name={state.status === 'error' ? 'alert' : 'close'} size={13} />}
+        {state.status === 'streaming' ? null : <Icon name={state.status === 'error' ? 'alert' : 'close'} size={12} />}
       </span>
       <span>{state.label}</span>
     </span>
@@ -123,6 +123,33 @@ export function SubdocTabs({
     if (!source) return
     setFocusedAnnotation(source.id)
     setAnchoredSubdocId(nodeId)
+  }
+
+  function activate(nodeId: string): void {
+    setActiveSubdoc(nodeId)
+    const source = annotations.find((item) => item.child_node_id === nodeId)
+    if (isSelectionSource(source)) locateSource(nodeId)
+  }
+
+  function focusTab(nodeId: string): void {
+    tabsRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-subdoc-id="${nodeId}"]`)
+      ?.focus()
+  }
+
+  function handleTablistKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const currentIndex = currentId ? displayedNodeIds.indexOf(currentId) : -1
+    let next = currentIndex
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (currentIndex + 1) % displayedNodeIds.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (currentIndex - 1 + displayedNodeIds.length) % displayedNodeIds.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = displayedNodeIds.length - 1
+    else return
+    event.preventDefault()
+    const nextId = displayedNodeIds[next]
+    if (!nextId || nextId === currentId) return
+    activate(nextId)
+    focusTab(nextId)
   }
 
   useEffect(() => {
@@ -230,7 +257,7 @@ export function SubdocTabs({
 
   return (
     <div className="subdoc-tabs-shell">
-      <div aria-label="关联内容标签" className="subdoc-tabs" ref={tabsRef} role="tablist">
+      <div aria-label="关联内容标签" className="subdoc-tabs" onKeyDown={handleTablistKeyDown} ref={tabsRef} role="tablist">
         {displayedNodeIds.map((id) => {
           const title = nodeTitle(nodesById[id])
           const taskKey = taskKeyByTarget[id]
@@ -238,19 +265,18 @@ export function SubdocTabs({
           const badge = generationBadgeState(nodesById[id], task)
           return (
             <button
+              aria-controls="subdoc-panel"
               aria-label={badge ? `${title}，${badge.label}` : title}
               aria-selected={id === currentId}
               className={flashSubdocId === id ? 'is-anchor-flash' : undefined}
               data-gen-status={badge?.status}
               data-subdoc-id={id}
               data-task-key={badge?.key}
+              id={`subdoc-tab-${id}`}
               key={id}
-              onClick={() => {
-                setActiveSubdoc(id)
-                const source = annotations.find((item) => item.child_node_id === id)
-                if (isSelectionSource(source)) locateSource(id)
-              }}
+              onClick={() => activate(id)}
               role="tab"
+              tabIndex={id === currentId ? 0 : -1}
               title={title}
               type="button"
             >
@@ -261,7 +287,7 @@ export function SubdocTabs({
         })}
       </div>
       {current && (
-        <article className={`subdoc-card${flashSubdocId === current.id ? ' is-anchor-flash' : ''}`} ref={cardRef} role="tabpanel">
+        <article aria-labelledby={currentId ? `subdoc-tab-${currentId}` : undefined} className={`subdoc-card${flashSubdocId === current.id ? ' is-anchor-flash' : ''}`} id="subdoc-panel" ref={cardRef} role="tabpanel">
           <header>
             <div className="subdoc-card-title">
               <h3>{nodeTitle(current)}</h3>
@@ -304,7 +330,7 @@ export function SubdocTabs({
                 </button>
               )}
               <button
-                aria-label="promote"
+                aria-label="设为主文档"
                 className="primary-button"
                 onClick={() => transitionDocument(() => {
                   promoteSubdoc(current.id)
@@ -341,8 +367,7 @@ export function SubdocTabs({
             retryTaskKey={generationTaskKeys.retry(current.id)}
           />
           {current.parent_id && (
-            <MergeButton
-              onMerged={() => useWorkbench.getState().bumpMergeRefresh()}
+            <CorrectiveMergeButton
               sourceNodeId={current.id}
               targetNodeId={current.parent_id}
             />

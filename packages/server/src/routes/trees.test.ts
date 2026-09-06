@@ -114,3 +114,27 @@ describe('tree and node routes', () => {
     await app.close()
   })
 })
+
+describe('tree folder', () => {
+  it('assigns a tree to a sanitized folder and back to ungrouped', async () => {
+    const { app } = setup()
+    const created = await app.inject({ method: 'POST', payload: { title: '文件夹测试' }, url: '/api/trees' })
+    const { tree } = created.json<{ tree: { id: string } }>()
+
+    const moved = await app.inject({
+      method: 'PATCH',
+      payload: { folder: ' 工作/../周报 ' },
+      url: `/api/trees/${tree.id}`,
+    })
+    expect(moved.statusCode).toBe(200)
+    expect(moved.json<{ tree: { folder: string | null } }>().tree.folder).toBe('工作/周报')
+
+    const back = await app.inject({
+      method: 'PATCH',
+      payload: { folder: null },
+      url: `/api/trees/${tree.id}`,
+    })
+    expect(back.json<{ tree: { folder: string | null } }>().tree.folder).toBeNull()
+    await app.close()
+  })
+})

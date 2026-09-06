@@ -34,7 +34,7 @@ export function SettingsPanel() {
   const [error, setError] = useState<string | null>(null)
   const [hasApiKey, setHasApiKey] = useState(false)
   const [projectRoot, setProjectRoot] = useState('')
-  const [provider, setProvider] = useState('')
+  const [provider, setProvider] = useState('codex')
   const [model, setModel] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -73,7 +73,7 @@ export function SettingsPanel() {
     setError(null)
     const patch: SettingsPatch = {
       projectRoot,
-      provider,
+      provider: 'codex',
       model,
       baseUrl,
       vaultPath,
@@ -170,8 +170,13 @@ export function SettingsPanel() {
           </label>
           <label>
             <span>AI 服务商</span>
-            <input aria-label="AI 服务商" disabled={busy} onChange={(event) => setProvider(event.target.value)} value={provider} />
+            <select aria-label="AI 服务商" disabled={busy} onChange={() => setProvider('codex')} value="codex">
+              <option value="codex">codex</option>
+            </select>
           </label>
+          {provider !== 'codex' && (
+            <p className="notice notice-info">当前服务商 "{provider}" 不受支持，保存后将使用 codex</p>
+          )}
           <label>
             <span>模型名称</span>
             <input aria-label="模型名称" disabled={busy} onChange={(event) => setModel(event.target.value)} value={model} />

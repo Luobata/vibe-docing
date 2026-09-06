@@ -36,4 +36,24 @@ describe('MergeButton', () => {
     )
     expect(screen.getByText('已合并')).toBeInTheDocument()
   })
+
+  it('shows the persisted merged state from treeMerges without calling the API', () => {
+    const api = { merge: vi.fn() }
+    useWorkbench.getState().setTreeGraph({
+      merges: [{
+        conclusion: '结论',
+        created_at: '2026-08-31T00:00:00.000Z',
+        id: 'm1',
+        landing_segment_id: 'segment-1',
+        source_node_id: 'child',
+        target_node_id: 'root',
+      }],
+    })
+
+    render(<ApiProvider api={api as never}><MergeButton sourceNodeId="child" targetNodeId="root" /></ApiProvider>)
+
+    expect(screen.getByText('已合并')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '合并回来源笔记' })).not.toBeInTheDocument()
+    expect(api.merge).not.toHaveBeenCalled()
+  })
 })

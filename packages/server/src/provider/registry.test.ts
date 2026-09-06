@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { openMemoryDb } from '../db/connection'
 import { createSettingsRepo } from '../repo/settings-repo'
 import { createMockProvider } from './mock-provider'
-import { resolveProvider } from './registry'
+import { ProviderConfigError, resolveProvider } from './registry'
 
 describe('resolveProvider', () => {
   it('uses an injected provider without reading the network', () => {
@@ -19,5 +19,13 @@ describe('resolveProvider', () => {
     const provider = resolveProvider({ settings })
     expect(provider.stream).toBeTypeOf('function')
     expect(provider.complete).toBeTypeOf('function')
+  })
+
+  it('throws a typed configuration error for an unsupported provider', () => {
+    const settings = createSettingsRepo(openMemoryDb())
+    settings.set('provider.name', 'claude-o50')
+
+    expect(() => resolveProvider({ settings })).toThrow(ProviderConfigError)
+    expect(() => resolveProvider({ settings })).toThrow('Unsupported provider: claude-o50')
   })
 })

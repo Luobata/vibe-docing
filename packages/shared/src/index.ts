@@ -1,6 +1,7 @@
 export * from './prosemirror'
 export * from './code-fence'
 export * from './markdown'
+export * from './markdown-normalize'
 export * from './json-canvas'
 export * from './share-schema'
 export * from './types'

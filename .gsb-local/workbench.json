@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "projectName": "vibe-docing",
+  "name": "vibe-docing workbench",
+  "profile": "user:gsb-local",
+  "session": "vibe-docing",
+  "permission": "full-access",
+  "watchdog": true,
+  "rebuild": true,
+  "templateOrigin": {
+    "id": "gsb-local",
+    "version": 6
+  },
+  "roles": [
+    {
+      "id": "hub",
+      "name": "Hub",
+      "type": "orchestrator",
+      "description": "目标澄清、任务拆解、分发、冲突处理与最终汇总"
+    },
+    {
+      "id": "coder",
+      "name": "Coder",
+      "type": "executor",
+      "description": "默认生产实现、测试与验证"
+    },
+    {
+      "id": "audit",
+      "name": "audit",
+      "type": "specialist",
+      "description": "权限、构建、依赖、CI、资源和上线、代码审计"
+    },
+    {
+      "id": "plan",
+      "name": "plan",
+      "type": "specialist",
+      "description": "反证主方案，准备备选、回滚与覆盖计划"
+    }
+  ]
+}

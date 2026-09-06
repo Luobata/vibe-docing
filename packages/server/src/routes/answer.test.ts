@@ -77,4 +77,24 @@ describe('answer SSE route', () => {
     })).statusCode).toBe(404)
     await app.close()
   })
+
+  it('returns a structured JSON 503 before opening SSE for an unsupported provider', async () => {
+    const { app, deps, rootNode } = setup()
+    deps.providerOverride = undefined
+    deps.settings.set('provider.name', 'claude-o50')
+
+    const response = await app.inject({
+      method: 'POST',
+      payload: { userInput: '问题' },
+      url: `/api/nodes/${rootNode.id}/answer`,
+    })
+
+    expect(response.statusCode).toBe(503)
+    expect(response.headers['content-type']).toContain('application/json')
+    expect(response.json()).toEqual({
+      code: 'PROVIDER_CONFIG',
+      error: 'Unsupported provider: claude-o50',
+    })
+    await app.close()
+  })
 })

@@ -4,6 +4,13 @@ import type { Provider } from './types'
 
 type SettingsRepo = ReturnType<typeof createSettingsRepo>
 
+export class ProviderConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ProviderConfigError'
+  }
+}
+
 export function resolveProvider(
   deps: { settings: SettingsRepo },
   override?: Provider,
@@ -12,7 +19,7 @@ export function resolveProvider(
 
   const config = deps.settings.getProviderConfig()
   if (config.provider !== 'codex') {
-    throw new Error(`Unsupported provider: ${config.provider}`)
+    throw new ProviderConfigError(`Unsupported provider: ${config.provider}`)
   }
   return createCodexProvider(config)
 }

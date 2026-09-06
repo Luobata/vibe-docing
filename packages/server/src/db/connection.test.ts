@@ -119,6 +119,49 @@ describe('db schema', () => {
       .toEqual({ ai_response: 'legacy version body', document_content: 'legacy version body' })
   })
 
+  it('rebuilds legacy merges without losing rows and remains idempotent', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vibe-legacy-merges-'))
+    temporaryDirectories.push(directory)
+    const databasePath = join(directory, 'legacy.db')
+    const legacy = new Database(databasePath)
+    legacy.exec(`
+      CREATE TABLE trees (id TEXT PRIMARY KEY, title TEXT NOT NULL, root_node_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE nodes (id TEXT PRIMARY KEY, tree_id TEXT NOT NULL, parent_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, user_input TEXT, ai_response TEXT, status TEXT NOT NULL DEFAULT 'draft', is_deleted INTEGER NOT NULL DEFAULT 0, model_override TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE context_segments (id TEXT PRIMARY KEY, node_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, ref_node_id TEXT, ref_version_no INTEGER, content TEXT);
+      CREATE TABLE merges (id TEXT PRIMARY KEY, source_node_id TEXT NOT NULL, target_node_id TEXT NOT NULL, conclusion TEXT NOT NULL, landing_segment_id TEXT NOT NULL, created_at TEXT NOT NULL);
+      INSERT INTO trees (id, title, root_node_id, created_at, updated_at) VALUES ('t1', 'Legacy', 'parent', 'now', 'now');
+      INSERT INTO nodes (id, tree_id, parent_id, sort_order, user_input, ai_response, status, is_deleted, model_override, created_at, updated_at)
+        VALUES ('parent', 't1', NULL, 0, 'parent', 'parent body', 'complete', 0, NULL, 'now', 'now'),
+               ('source', 't1', 'parent', 0, 'source', 'source body', 'complete', 0, NULL, 'now', 'now');
+      INSERT INTO context_segments (id, node_id, seq, type, ref_node_id, ref_version_no, content)
+        VALUES ('segment', 'parent', 0, 'merged-conclusion', NULL, NULL, 'legacy conclusion');
+      INSERT INTO merges (id, source_node_id, target_node_id, conclusion, landing_segment_id, created_at)
+        VALUES ('merge', 'source', 'parent', 'legacy conclusion', 'segment', 'now');
+    `)
+    legacy.close()
+
+    const upgraded = openDb(databasePath)
+    const columns = upgraded.prepare('PRAGMA table_info(merges)').all() as Array<{ name: string; notnull: number }>
+    expect(columns.find((column) => column.name === 'landing_segment_id')?.notnull).toBe(0)
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['kind', 'direction']))
+    expect(upgraded.prepare('SELECT * FROM merges WHERE id = ?').get('merge')).toEqual({
+      conclusion: 'legacy conclusion',
+      created_at: 'now',
+      direction: null,
+      id: 'merge',
+      kind: 'summary',
+      landing_segment_id: 'segment',
+      source_node_id: 'source',
+      target_node_id: 'parent',
+    })
+    upgraded.close()
+
+    const reopened = openDb(databasePath)
+    openDatabases.push(reopened)
+    expect(reopened.prepare('SELECT COUNT(*) AS count FROM merges').get()).toEqual({ count: 1 })
+    expect(reopened.pragma('foreign_key_check')).toEqual([])
+  })
+
   it('scopes active document shares by node', () => {
     const db = openMemoryDb()
     openDatabases.push(db)

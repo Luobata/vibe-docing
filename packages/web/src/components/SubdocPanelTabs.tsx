@@ -40,7 +40,7 @@ export function SubdocPanelTabs({ annotations, onCreateNote, canCreateNote }: {
           整篇内容 <span className="tab-count" aria-label={`${groups.global.length} 个`}>{groups.global.length}</span>
         </button>
         <button aria-selected={tab === 'notes'} onClick={() => setTab('notes')} role="tab" type="button">
-          批注 <span className="tab-count" aria-label={`${annotations.filter((item) => item.child_node_id === null && item.note).length} 条`}>{annotations.filter((item) => item.child_node_id === null && item.note).length}</span>
+          笔记 <span className="tab-count" aria-label={`${annotations.filter((item) => item.child_node_id === null && item.note).length} 条`}>{annotations.filter((item) => item.child_node_id === null && item.note).length}</span>
         </button>
       </div>
       {tab === 'derivations' && (

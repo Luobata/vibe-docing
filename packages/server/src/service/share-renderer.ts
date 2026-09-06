@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it'
 import {
   buildPublicShareSnapshot,
   documentContentOf,
+  normalizeMarkdown,
   prosemirrorToPlainText,
   prosemirrorToRenderRuns,
   sceneLayout,
@@ -81,7 +82,7 @@ function visualSceneMarkdown(scene: VisualScene): string {
 function proseMirrorMarkdown(document: ShareDocument, source: string | null): string {
   const blocks = prosemirrorToRenderRuns(source).flatMap((run) => {
     if (run.type === 'text') {
-      const text = safeLine(run.text).trim()
+      const text = run.text.trim()
       return text ? [text] : []
     }
     const artifact = artifactFor(document, run.reference)
@@ -154,8 +155,6 @@ export function renderShareMarkdown(document: ShareDocument): string {
       if (annotation.note) out.push('', `备注：${safeLine(annotation.note)}`)
       if (child) {
         out.push('', `派生子节点：${label(child.row)}`)
-        const derived = body(document, child.row)
-        if (derived) out.push('', derived)
       }
     }
     for (const child of node.children) visit(child, depth + 1, nextPath)
@@ -163,7 +162,7 @@ export function renderShareMarkdown(document: ShareDocument): string {
   }
 
   visit(document.root, 0, [])
-  return `${out.join('\n').trim()}\n`
+  return `${normalizeMarkdown(out.join('\n').trim())}\n`
 }
 
 export function buildShareJson(document: ShareDocument): PublicShareSnapshot {
@@ -259,11 +258,96 @@ function humanMarkdown(source: string): string {
     .replace(/^<!-- branch:(?:start depth=\d+|end) -->\n?/gm, '')
 }
 
+/* ============ 会话地图（分享页静态血缘图） ============ */
+
+interface ShareMapNode {
+  id: string
+  label: string
+  x: number
+  y: number
+  children: ShareMapNode[]
+}
+
+const MAP_CARD_W = 188
+const MAP_CARD_H = 54
+const MAP_GAP_X = 56
+const MAP_GAP_Y = 16
+
+function shareMapLayout(document: ShareDocument): { root: ShareMapNode; width: number; height: number } {
+  let nextSlot = 0
+  let maxDepth = 0
+  const place = (node: ShareNode, depth: number): ShareMapNode => {
+    maxDepth = Math.max(maxDepth, depth)
+    const mapNode: ShareMapNode = { id: node.row.id, label: rawLabel(node.row), x: 0, y: 0, children: [] }
+    if (node.children.length === 0) {
+      mapNode.y = nextSlot * (MAP_CARD_H + MAP_GAP_Y)
+      nextSlot += 1
+    } else {
+      mapNode.children = node.children.map((child) => place(child, depth + 1))
+      mapNode.y = (mapNode.children[0].y + mapNode.children[mapNode.children.length - 1].y) / 2
+    }
+    mapNode.x = depth * (MAP_CARD_W + MAP_GAP_X)
+    return mapNode
+  }
+  const root = place(document.root, 0)
+  return {
+    root,
+    width: (maxDepth + 1) * MAP_CARD_W + maxDepth * MAP_GAP_X + 32,
+    height: Math.max(nextSlot, 1) * (MAP_CARD_H + MAP_GAP_Y) + 24,
+  }
+}
+
+function mapCardLines(label: string): [string, string] {
+  const first = label.slice(0, 12)
+  const rest = label.slice(12)
+  const second = rest.length > 12 ? `${rest.slice(0, 11)}…` : rest
+  return [first, second]
+}
+
+function renderShareMapSvg(document: ShareDocument): string {
+  const { root, width, height } = shareMapLayout(document)
+  const edges: string[] = []
+  const cards: string[] = []
+  const visit = (node: ShareMapNode): void => {
+    for (const child of node.children) {
+      const x1 = node.x + MAP_CARD_W
+      const y1 = node.y + MAP_CARD_H / 2
+      const x2 = child.x
+      const y2 = child.y + MAP_CARD_H / 2
+      const dx = Math.max(24, (x2 - x1) / 2)
+      edges.push(`<path class="share-map-edge" d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}"/>`)
+      visit(child)
+    }
+    const isShareRoot = node === root
+    const [line1, line2] = mapCardLines(node.label)
+    const titleText = line2
+      ? `<text class="share-map-label" x="${node.x + 12}" y="${node.y + 23}">${escapeHtml(line1)}</text><text class="share-map-label share-map-label-2" x="${node.x + 12}" y="${node.y + 41}">${escapeHtml(line2)}</text>`
+      : `<text class="share-map-label" x="${node.x + 12}" y="${node.y + 33}">${escapeHtml(line1)}</text>`
+    cards.push(
+      `<g class="${isShareRoot ? 'share-map-card is-root' : 'share-map-card'}"><rect x="${node.x}" y="${node.y}" width="${MAP_CARD_W}" height="${MAP_CARD_H}" rx="8" ry="8"/>${titleText}${isShareRoot ? `<text class="share-map-badge" x="${node.x + 12}" y="${node.y - 6}">分享起点</text>` : ''}</g>`,
+    )
+  }
+  visit(root)
+
+  return `<div class="share-map-viewport"><svg role="img" aria-label="会话地图" viewBox="0 0 ${width} ${height}">${edges.join('')}${cards.join('')}</svg></div>`
+}
+
+function shareMapSection(document: ShareDocument): string {
+  const count = (() => {
+    let total = 0
+    const countNodes = (node: ShareNode): void => { total += 1; node.children.forEach(countNodes) }
+    countNodes(document.root)
+    return total
+  })()
+  if (count <= 1) return ''
+  return `<section class="share-map" aria-label="会话地图"><h2>会话地图</h2>${renderShareMapSvg(document)}<p class="share-map-note">共 ${count} 个会话节点；高亮为本次分享起点。</p></section>`
+}
+
 export function renderShareHtml(document: ShareDocument, markdownUrl: string, jsonUrl = markdownUrl.replace(/\.md$/, '.json')): string {
   const source = renderShareMarkdown(document)
   const alternates = `<link rel="alternate" type="text/markdown" href="${escapeHtml(markdownUrl)}"><link rel="alternate" type="application/json" href="${escapeHtml(jsonUrl)}">`
   const aiLinks = `<nav class="share-ai-links" aria-label="AI 读取"><strong>AI 读取</strong> · <a href="${escapeHtml(markdownUrl)}">Markdown</a> · <a href="${escapeHtml(jsonUrl)}">JSON</a></nav>`
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${escapeHtml(shareTitle(document))}</title><link rel="alternate" type="text/markdown" href="${escapeHtml(markdownUrl)}"><style>html{font:16px/1.7 system-ui,sans-serif;color:#1f2328;background:#fff}body{max-width:960px;margin:0 auto;padding:48px 24px;overflow-wrap:anywhere}pre,table{max-width:100%;overflow:auto}img{max-width:100%}h1{font-size:2rem;border-bottom:1px solid #d0d7de;padding-bottom:.4em}h2,h3,h4,h5,h6{margin-top:1.8em}.share-visual{margin:24px 0;overflow:hidden;border:1px solid #d8dee4;border-radius:14px;background:#fff;box-shadow:0 4px 18px rgba(31,35,40,.06)}.share-visual-viewport{min-height:260px;padding:18px;overflow:auto;background-color:#f8fafc;background-image:linear-gradient(rgba(148,163,184,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.12) 1px,transparent 1px);background-size:24px 24px}.share-visual svg{display:block;width:min(100%,980px);height:auto;margin:auto}.share-visual text{fill:#1f2328;font:14px system-ui,sans-serif}.share-visual-group{fill:rgba(52,108,255,.035);stroke:#9bb6ff;stroke-dasharray:5 4}.share-visual-node{fill:#fff;stroke:#94a3b8}.share-visual-edge{fill:none;stroke:#94a3b8;stroke-width:1.5}.share-visual-edge-label{paint-order:stroke;stroke:#f8fafc;stroke-width:5px;stroke-linejoin:round}.share-visual figcaption{display:grid;gap:2px;padding:12px 16px;color:#57606a}.share-visual figcaption strong{color:#1f2328}.share-visual-data{border-top:1px solid #d8dee4;padding:10px 16px}.share-visual-data summary{cursor:pointer;color:#57606a}.share-visual-data pre{margin:10px 0 4px;padding:12px;border-radius:8px;background:#f6f8fa;font-size:12px}</style></head><body>${markdown.render(humanMarkdown(source))}</body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${escapeHtml(shareTitle(document))}</title><link rel="alternate" type="text/markdown" href="${escapeHtml(markdownUrl)}"><style>html{font:16px/1.7 system-ui,sans-serif;color:#1f2328;background:#fff}body{max-width:960px;margin:0 auto;padding:48px 24px;overflow-wrap:anywhere}pre,table{max-width:100%;overflow:auto}img{max-width:100%}h1{font-size:2rem;border-bottom:1px solid #d0d7de;padding-bottom:.4em}h2,h3,h4,h5,h6{margin-top:1.8em}.share-visual{margin:24px 0;overflow:hidden;border:1px solid #d8dee4;border-radius:14px;background:#fff;box-shadow:0 4px 18px rgba(31,35,40,.06)}.share-visual-viewport{min-height:260px;padding:18px;overflow:auto;background-color:#f8fafc;background-image:linear-gradient(rgba(148,163,184,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.12) 1px,transparent 1px);background-size:24px 24px}.share-visual svg{display:block;width:min(100%,980px);height:auto;margin:auto}.share-visual text{fill:#1f2328;font:14px system-ui,sans-serif}.share-visual-group{fill:rgba(52,108,255,.035);stroke:#9bb6ff;stroke-dasharray:5 4}.share-visual-node{fill:#fff;stroke:#94a3b8}.share-visual-edge{fill:none;stroke:#94a3b8;stroke-width:1.5}.share-visual-edge-label{paint-order:stroke;stroke:#f8fafc;stroke-width:5px;stroke-linejoin:round}.share-visual figcaption{display:grid;gap:2px;padding:12px 16px;color:#57606a}.share-visual figcaption strong{color:#1f2328}.share-visual-data{border-top:1px solid #d8dee4;padding:10px 16px}.share-visual-data summary{cursor:pointer;color:#57606a}.share-visual-data pre{margin:10px 0 4px;padding:12px;border-radius:8px;background:#f6f8fa;font-size:12px}.share-map{margin:28px 0 8px;overflow:hidden;border:1px solid #d8dee4;border-radius:14px;background:#fff;box-shadow:0 4px 18px rgba(31,35,40,.06)}.share-map h2{margin:0;padding:14px 18px 0;font-size:1.05rem;border:0}.share-map-viewport{padding:18px;overflow:auto;background-color:#f8fafc;background-image:radial-gradient(rgba(148,163,184,.25) 1px,transparent 1px);background-size:22px 22px}.share-map svg{display:block;height:auto;min-width:520px}.share-map .share-map-card rect{fill:#fff;stroke:#c3ccd6;stroke-width:1.2}.share-map .share-map-card.is-root rect{stroke:#346cff;stroke-width:2}.share-map-label{fill:#1f2328;font:600 13px system-ui,sans-serif}.share-map-label-2{fill:#57606a;font-weight:400}.share-map-badge{fill:#346cff;font:600 11px system-ui,sans-serif}.share-map-edge{fill:none;stroke:#b6c2ce;stroke-width:1.5}.share-map-note{margin:0;padding:10px 18px 14px;color:#57606a;font-size:13px;border-top:1px solid #e8edf2}</style></head><body>${markdown.render(humanMarkdown(source))}</body></html>`
     .replace(`<link rel="alternate" type="text/markdown" href="${escapeHtml(markdownUrl)}">`, alternates)
-    .replace('<body>', `<body>${aiLinks}`)
+    .replace('<body>', `<body>${aiLinks}${shareMapSection(document)}`)
 }

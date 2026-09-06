@@ -6,6 +6,6 @@ describe('App smoke', () => {
   it('mounts the workbench and tree launcher', () => {
     render(<App api={{ listTrees: vi.fn(() => new Promise(() => {})) } as never} />)
     expect(screen.getByTestId('workbench')).toBeInTheDocument()
-    expect(screen.getByLabelText('new-tree-title')).toBeInTheDocument()
+    expect(screen.getByLabelText('新建笔记库标题')).toBeInTheDocument()
   })
 })

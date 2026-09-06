@@ -1,5 +1,5 @@
 import type { NodeRow } from '@vibe/shared'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
@@ -17,12 +17,15 @@ describe('VersionPanel', () => {
       ] })),
       listVersions: vi.fn(async () => ({ versions: [
         { ai_response: null, change_kind: 'edit', created_at: '', id: 'v1', node_id: 'n', user_input: null, version_no: 1 },
-        { ai_response: null, change_kind: 'merge', created_at: '', id: 'v2', node_id: 'n', user_input: null, version_no: 2 },
+        { ai_response: null, change_kind: 'correction', created_at: '', id: 'v2', node_id: 'n', user_input: null, version_no: 2 },
       ] })),
       revert: vi.fn(async () => ({ node })),
     }
     render(<ApiProvider api={api as never}><VersionPanel nodeId="n" /></ApiProvider>)
     expect(await screen.findByText('版本 1')).toBeInTheDocument()
+    expect(screen.getByText(/引导合并/)).toBeInTheDocument()
+    act(() => useWorkbench.getState().bumpMergeRefresh())
+    await waitFor(() => expect(api.listVersions).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: '当前版本' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '查看变化' }))
     expect(await screen.findByLabelText('版本 1 的变化')).toHaveTextContent('旧内容')

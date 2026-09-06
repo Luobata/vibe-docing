@@ -27,7 +27,9 @@ import {
 import { AnnotationBubble } from './AnnotationBubble'
 import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
+import { CorrectiveMergeButton } from './CorrectiveMergeButton'
 import { DocView } from './DocView'
+import { Icon } from './Icon'
 import { DocumentEditor, type DocumentEditorHandle } from '../editor/DocumentEditor'
 import { MergedConclusions } from './MergedConclusions'
 import { QuestionEditor } from './QuestionEditor'
@@ -898,6 +900,11 @@ export function MainDoc() {
               <strong>{parentContext.node.user_input?.split('\n')[0]?.trim() || '父文档'}</strong>
               <span>{parentContext.annotation?.quoted_text || parentContext.sourceText || '基于来源笔记的上下文展开'}</span>
             </div>
+            <CorrectiveMergeButton
+              compact
+              sourceNodeId={node.id}
+              targetNodeId={parentContext.node.id}
+            />
             <button
               className="quiet-button"
               onClick={() => {
@@ -1060,7 +1067,7 @@ export function MainDoc() {
       </div>
       {showButton && (
         <button className="scroll-to-bottom" data-testid="scroll-to-bottom" onClick={scrollToBottom} type="button">
-          ↓ 回到底部
+          <Icon name="chevron-down" size={12} /> 回到底部
         </button>
       )}
       <div className="composer">

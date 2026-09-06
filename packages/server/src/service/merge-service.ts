@@ -5,6 +5,7 @@ import type { Provider } from '../provider/types'
 
 export class MergeNotFoundError extends Error {}
 export class InvalidMergeError extends Error {}
+export class MergeAlreadyExistsError extends Error {}
 
 export function createMergeService(
   deps: Pick<
@@ -28,6 +29,9 @@ export function createMergeService(
     if (source.parent_id !== target.id) {
       throw new InvalidMergeError('merge target must be the direct parent')
     }
+    if (deps.merges.findBySourceAndTarget(source.id, target.id)) {
+      throw new MergeAlreadyExistsError('source node is already merged into target')
+    }
 
     const messages = deps.context.assemble(source.id, source.user_input ?? '')
     const answer = prosemirrorToPlainText(documentContentOf(source))
@@ -40,6 +44,9 @@ export function createMergeService(
     if (!conclusion) throw new InvalidMergeError('provider returned an empty conclusion')
 
     return deps.db.transaction(() => {
+      if (deps.merges.findBySourceAndTarget(source.id, target.id)) {
+        throw new MergeAlreadyExistsError('source node is already merged into target')
+      }
       const segment = deps.segments.add({
         content: conclusion,
         nodeId: target.id,
