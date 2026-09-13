@@ -1,6 +1,7 @@
 import { normalizeMarkdown } from '@vibe/shared'
 import MarkdownIt from 'markdown-it'
 import type { AnnotationRange } from './highlight'
+import { isCjkDiagram } from './cjk-diagram'
 
 // html:false → raw inline/block HTML in the source is escaped, not passed
 // through (blocks the obvious XSS vector). linkify on so bare URLs the model
@@ -85,6 +86,14 @@ md.core.ruler.after('inline', 'task-list-items', (state) => {
 
 md.renderer.rules.table_open = () => '<div class="doc-table-scroll"><table>\n'
 md.renderer.rules.table_close = () => '</table></div>\n'
+
+const defaultFence = md.renderer.rules.fence!
+md.renderer.rules.fence = (tokens, index, options, env, self) => {
+  const html = defaultFence(tokens, index, options, env, self)
+  return isCjkDiagram(tokens[index].content)
+    ? html.replace('<pre>', '<pre class="is-cjk-diagram">')
+    : html
+}
 
 export function renderMarkdown(text: string): string {
   // 渲染前规整：病态围栏空行（AI 生成物常见） + Obsidian 表格。仅改动命中病态

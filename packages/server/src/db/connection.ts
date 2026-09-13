@@ -36,6 +36,16 @@ export function openDb(path: string): Db {
 // must be added explicitly.
 function migrate(db: Db): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS discussion_messages (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL REFERENCES nodes(id),
+      role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      promoted_node_id TEXT,
+      promoted_mode TEXT CHECK(promoted_mode IN ('section', 'child'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_discussion_messages_node ON discussion_messages(node_id);
     CREATE TABLE IF NOT EXISTS tree_folders (
       path TEXT PRIMARY KEY,
       created_at TEXT NOT NULL

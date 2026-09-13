@@ -19,6 +19,32 @@ afterEach(() => {
 })
 
 describe('db schema', () => {
+  it('adds discussions to a legacy database without losing messages on a second open', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vibe-discussion-migration-'))
+    temporaryDirectories.push(directory)
+    const path = join(directory, 'legacy.db')
+    const legacy = openDb(path)
+    legacy.exec(`DROP TABLE discussion_messages;
+      INSERT INTO trees (id, title, created_at, updated_at) VALUES ('t', 'Note', 'now', 'now');
+      INSERT INTO nodes (id, tree_id, created_at, updated_at) VALUES ('n', 't', 'now', 'now');`)
+    const before = legacy.prepare('SELECT * FROM nodes').all()
+    legacy.close()
+    const upgraded = openDb(path)
+    upgraded.prepare('INSERT INTO discussion_messages (id, node_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('m', 'n', 'user', 'Keep discussion', 'now')
+    const messages = upgraded.prepare('SELECT * FROM discussion_messages').all()
+    upgraded.close()
+    const reopened = openDb(path)
+    openDatabases.push(reopened)
+    expect(reopened.prepare('SELECT * FROM nodes').all()).toEqual(before)
+    expect(reopened.prepare('SELECT * FROM discussion_messages').all()).toEqual(messages)
+    expect(reopened.prepare('PRAGMA index_list(discussion_messages)').all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'idx_discussion_messages_node' }),
+    ]))
+    expect(reopened.pragma('integrity_check')).toEqual([{ integrity_check: 'ok' }])
+    expect(reopened.pragma('foreign_key_check')).toEqual([])
+  })
+
   it('adds persistent tree folders to an existing database and reopens idempotently', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vibe-tree-folders-'))
     temporaryDirectories.push(directory)

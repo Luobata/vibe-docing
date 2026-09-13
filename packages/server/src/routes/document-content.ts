@@ -1,6 +1,7 @@
 import type { DocumentAnchorPatch, ProseMirrorNode } from '@vibe/shared'
 import { documentContentOf, parseJsonCanvas, prosemirrorToPlainText } from '@vibe/shared'
 import type { DecoratedApp } from '../app'
+import type { AppDeps } from '../deps'
 
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 const MAX_DOCUMENT_DEPTH = 24
@@ -73,94 +74,103 @@ function validAnchor(value: unknown, text: string): value is DocumentAnchorPatch
     && text.slice(from, to) === (anchor.quotedText ?? '')
 }
 
+export function saveDocumentContent(
+  deps: Pick<AppDeps, 'nodes' | 'vault' | 'db' | 'annotations' | 'versions'>,
+  nodeId: string,
+  input: unknown,
+) {
+  const body = record(input)
+  const doc = body?.doc
+  const nativeSource = body?.source
+  const fileKind = body?.fileKind
+  const nativeDocument = typeof nativeSource === 'string' && body?.schemaVersion === 2
+    && (fileKind === 'markdown' || fileKind === 'canvas' || fileKind === 'base')
+  const serialized = nativeDocument ? nativeSource : (doc === undefined ? '' : JSON.stringify(doc))
+  const validSource = nativeDocument
+    && (fileKind !== 'canvas' || parseJsonCanvas(serialized) !== undefined)
+  if (
+    !body ||
+    !Number.isInteger(body.baseRevision) ||
+    (body.baseRevision as number) < 0 ||
+    (body.schemaVersion !== 1 && body.schemaVersion !== 2) ||
+    typeof body.editSessionId !== 'string' ||
+    !body.editSessionId.trim() ||
+    body.editSessionId.length > 200 ||
+    Buffer.byteLength(serialized, 'utf8') > MAX_DOCUMENT_BYTES ||
+    (!validSource && !validDocument(doc))
+  ) {
+    return { statusCode: 400 as const, body: { error: 'invalid document content body' } }
+  }
+
+  const anchorText = nativeDocument ? serialized : prosemirrorToPlainText(serialized)
+  const anchors = body.anchors ?? []
+  if (!Array.isArray(anchors) || anchors.length > 1_000
+    || !anchors.every((anchor) => validAnchor(anchor, anchorText))) {
+    return { statusCode: 400 as const, body: { error: 'invalid document anchors' } }
+  }
+
+  const found = deps.nodes.get(nodeId)
+  const existing = found?.file_path ? deps.vault.hydrateNode(found) : found
+  if (!existing || existing.is_deleted === 1) {
+    return { statusCode: 404 as const, body: { error: 'node not found' } }
+  }
+  const editSessionId = body.editSessionId as string
+
+  const save = deps.db.transaction(() => {
+    const node = deps.nodes.updateDocumentContent({
+      baseRevision: body.baseRevision as number,
+      content: serialized,
+      id: existing.id,
+      schemaVersion: nativeDocument ? 2 : 1,
+    })
+    if (!node) return undefined
+    const persisted = nativeDocument
+      ? deps.vault.writeNode(node, serialized, fileKind as 'markdown' | 'canvas' | 'base')
+      : node
+    deps.annotations.updateAnchors(existing.id, anchors as DocumentAnchorPatch[])
+    deps.versions.snapshotEditSession({
+      aiResponse: persisted.ai_response,
+      documentContent: documentContentOf(persisted),
+      changeKind: 'edit',
+      contentRevision: persisted.content_revision ?? 0,
+      editSessionId: editSessionId.trim(),
+      nodeId: persisted.id,
+      userInput: persisted.user_input,
+    })
+    return persisted
+  })
+  const node = save()
+  if (!node) {
+    const current = deps.nodes.get(existing.id)!
+    return { statusCode: 409 as const, body: {
+      currentRevision: current.content_revision ?? 0,
+      error: 'content conflict',
+      node: current,
+    } }
+  }
+
+  return { statusCode: 200 as const, body: {
+    content: {
+      ...(nativeDocument
+        ? {
+          contentHash: node.content_hash ?? null,
+          fileKind,
+          filePath: node.file_path ?? null,
+          source: serialized,
+        }
+        : { doc }),
+      nodeId: node.id,
+      revision: node.content_revision ?? 0,
+      schemaVersion: nativeDocument ? 2 : 1,
+      updatedAt: node.content_updated_at ?? null,
+    },
+    node,
+  } }
+}
+
 export function registerDocumentContentRoutes(app: DecoratedApp): void {
   app.patch('/api/nodes/:id/content', async (request, reply) => {
-    const body = record(request.body)
-    const doc = body?.doc
-    const nativeSource = body?.source
-    const fileKind = body?.fileKind
-    const nativeDocument = typeof nativeSource === 'string' && body?.schemaVersion === 2
-      && (fileKind === 'markdown' || fileKind === 'canvas' || fileKind === 'base')
-    const serialized = nativeDocument ? nativeSource : (doc === undefined ? '' : JSON.stringify(doc))
-    const validSource = nativeDocument
-      && (fileKind !== 'canvas' || parseJsonCanvas(serialized) !== undefined)
-    if (
-      !body ||
-      !Number.isInteger(body.baseRevision) ||
-      (body.baseRevision as number) < 0 ||
-      (body.schemaVersion !== 1 && body.schemaVersion !== 2) ||
-      typeof body.editSessionId !== 'string' ||
-      !body.editSessionId.trim() ||
-      body.editSessionId.length > 200 ||
-      Buffer.byteLength(serialized, 'utf8') > MAX_DOCUMENT_BYTES ||
-      (!validSource && !validDocument(doc))
-    ) {
-      return reply.code(400).send({ error: 'invalid document content body' })
-    }
-
-    const anchorText = nativeDocument ? serialized : prosemirrorToPlainText(serialized)
-    const anchors = body.anchors ?? []
-    if (!Array.isArray(anchors) || anchors.length > 1_000
-      || !anchors.every((anchor) => validAnchor(anchor, anchorText))) {
-      return reply.code(400).send({ error: 'invalid document anchors' })
-    }
-
-    const found = app.deps.nodes.get(request.params.id)
-    const existing = found?.file_path ? app.deps.vault.hydrateNode(found) : found
-    if (!existing || existing.is_deleted === 1) {
-      return reply.code(404).send({ error: 'node not found' })
-    }
-    const editSessionId = body.editSessionId as string
-
-    const save = app.deps.db.transaction(() => {
-      const node = app.deps.nodes.updateDocumentContent({
-        baseRevision: body.baseRevision as number,
-        content: serialized,
-        id: existing.id,
-        schemaVersion: nativeDocument ? 2 : 1,
-      })
-      if (!node) return undefined
-      const persisted = nativeDocument
-        ? app.deps.vault.writeNode(node, serialized, fileKind as 'markdown' | 'canvas' | 'base')
-        : node
-      app.deps.annotations.updateAnchors(existing.id, anchors as DocumentAnchorPatch[])
-      app.deps.versions.snapshotEditSession({
-        aiResponse: persisted.ai_response,
-        documentContent: documentContentOf(persisted),
-        changeKind: 'edit',
-        contentRevision: persisted.content_revision ?? 0,
-        editSessionId: editSessionId.trim(),
-        nodeId: persisted.id,
-        userInput: persisted.user_input,
-      })
-      return persisted
-    })
-    const node = save()
-    if (!node) {
-      const current = app.deps.nodes.get(existing.id)!
-      return reply.code(409).send({
-        currentRevision: current.content_revision ?? 0,
-        error: 'content conflict',
-        node: current,
-      })
-    }
-
-    return {
-      content: {
-        ...(nativeDocument
-          ? {
-            contentHash: node.content_hash ?? null,
-            fileKind,
-            filePath: node.file_path ?? null,
-            source: serialized,
-          }
-          : { doc }),
-        nodeId: node.id,
-        revision: node.content_revision ?? 0,
-        schemaVersion: nativeDocument ? 2 : 1,
-        updatedAt: node.content_updated_at ?? null,
-      },
-      node,
-    }
+    const result = saveDocumentContent(app.deps, request.params.id, request.body)
+    return reply.code(result.statusCode).send(result.body)
   })
 }

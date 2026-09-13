@@ -25,6 +25,9 @@ describe('createDeps', () => {
       { content: 'hello', role: 'user' },
     ])
     expect(deps.answer.generate).toBeTypeOf('function')
+    expect(deps.discussion.discuss).toBeTypeOf('function')
+    expect(deps.discussion.promote).toBeTypeOf('function')
+    expect(deps.discussionMessages.listByNode(tree.root_node_id!)).toEqual([])
     expect(deps.settings.getProviderConfig().provider).toBe('codex')
   })
 })

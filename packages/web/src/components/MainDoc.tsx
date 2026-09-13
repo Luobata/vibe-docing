@@ -29,6 +29,7 @@ import { AssistantStatus } from './AssistantStatus'
 import { ChatBox } from './ChatBox'
 import { CorrectiveMergeButton } from './CorrectiveMergeButton'
 import { DocView } from './DocView'
+import { DiscussionStrip } from './DiscussionStrip'
 import { Icon } from './Icon'
 import { DocumentEditor, type DocumentEditorHandle } from '../editor/DocumentEditor'
 import { MergedConclusions } from './MergedConclusions'
@@ -981,6 +982,7 @@ export function MainDoc() {
           />
           <MergedConclusions segments={segments} />
         </section>
+        <DiscussionStrip key={node.id} node={node} onSaved={upsertNode} />
         {transcript.map((turn, index) => {
           const turnNode = nodesById[turn.id] ?? turn.answer
           const turnTaskKey = taskKeyByTarget[turn.id]

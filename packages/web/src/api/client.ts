@@ -36,6 +36,26 @@ export interface AnswerStreamHandlers {
   onVisual?(event: VisualStreamEvent): void
 }
 
+export interface DiscussionMessage {
+  id: string
+  node_id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+  promoted_node_id: string | null
+  promoted_mode: 'child' | 'section' | null
+}
+
+export type DiscussionMove = 'challenge' | 'perspectives' | 'converge'
+export interface DiscussionStep { step?: number; persona?: string }
+export interface DiscussionStreamHandlers {
+  onChunk(text: string, step: DiscussionStep): void
+  onDone(messages: DiscussionMessage[]): void
+  onError(message: string, detail?: DiscussionStep & { messages?: DiscussionMessage[] }): void
+  onPing?(): void
+  onCancelled?(): void
+}
+
 export interface FolderRow {
   path: string
   created_at: string
@@ -122,7 +142,87 @@ export function createApi(options?: {
     }
   }
 
+  async function discussionStream(path: string, body: unknown, handlers: DiscussionStreamHandlers, signal?: AbortSignal): Promise<void> {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    let watchdog: ReturnType<typeof setInterval> | undefined
+    const cancel = () => { void reader?.cancel(signal?.reason).catch(() => {}) }
+    let terminal = false
+    const frame = (source: string) => {
+      const data = source.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n')
+      if (!data || terminal) return
+      let event: Record<string, unknown>
+      try { event = JSON.parse(data) } catch {
+        terminal = true
+        handlers.onError('讨论流数据无效，请重试')
+        return
+      }
+      if (event.type === 'ping') handlers.onPing?.()
+      else if (event.type === 'chunk' && typeof event.text === 'string') {
+        handlers.onChunk(event.text, { step: event.step as number | undefined, persona: event.persona as string | undefined })
+      } else if (event.type === 'done' && Array.isArray(event.messages)) {
+        terminal = true
+        handlers.onDone(event.messages as DiscussionMessage[])
+      } else if (event.type === 'error') {
+        terminal = true
+        handlers.onError(typeof event.message === 'string' ? event.message : '讨论失败，请重试', {
+          step: event.step as number | undefined, persona: event.persona as string | undefined,
+          messages: Array.isArray(event.messages) ? event.messages as DiscussionMessage[] : undefined,
+        })
+      }
+    }
+    try {
+      const response = await fetchImpl(`${base}${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
+      })
+      if (!response.ok || !response.body) {
+        const raw = await response.text()
+        let payload: unknown = raw
+        try { payload = JSON.parse(raw) } catch {}
+        throw new ApiError(response.status, payload)
+      }
+      reader = response.body.getReader()
+      signal?.addEventListener('abort', cancel, { once: true })
+      if (signal?.aborted) cancel()
+      let lastActivityAt = Date.now()
+      watchdog = setInterval(() => {
+        if (Date.now() - lastActivityAt > 45_000) cancel()
+      }, 5_000)
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for (;;) {
+        signal?.throwIfAborted()
+        const { done, value } = await reader.read()
+        signal?.throwIfAborted()
+        if (value?.byteLength) lastActivityAt = Date.now()
+        buffer += decoder.decode(value, { stream: !done })
+        const frames = buffer.split(/\r?\n\r?\n/)
+        buffer = frames.pop() ?? ''
+        for (const entry of frames) frame(entry)
+        if (done || terminal) break
+      }
+      signal?.throwIfAborted()
+      if (buffer.trim()) frame(buffer)
+      if (!terminal) handlers.onError('连接已中断，请重试')
+    } catch (error) {
+      if (isAbortError(error, signal)) { handlers.onCancelled?.(); return }
+      throw error
+    } finally {
+      if (watchdog !== undefined) clearInterval(watchdog)
+      signal?.removeEventListener('abort', cancel)
+      if (reader) { await reader.cancel().catch(() => {}); reader.releaseLock() }
+    }
+  }
+
   return {
+    listDiscussion: (nodeId: string) => json<{ messages: DiscussionMessage[] }>(`/nodes/${nodeId}/discussion`),
+    sendDiscussion: (nodeId: string, userInput: string, handlers: DiscussionStreamHandlers, signal?: AbortSignal) =>
+      discussionStream(`/nodes/${nodeId}/discussion`, { userInput }, handlers, signal),
+    runDiscussionMove: (nodeId: string, move: DiscussionMove, handlers: DiscussionStreamHandlers, signal?: AbortSignal) =>
+      discussionStream(`/nodes/${nodeId}/discussion/moves`, { move }, handlers, signal),
+    promoteDiscussion: (nodeId: string, body: { mode: 'child' | 'section'; messageIds: string[]; baseRevision?: number }) =>
+      json<{ node: NodeRow; content: DocumentContentView; messages: DiscussionMessage[] }>(`/nodes/${nodeId}/discussion/promote`, {
+        method: 'POST', body: JSON.stringify(body),
+      }),
     listFolders: () => json<{ folders: FolderRow[] }>('/folders'),
     createFolder: (path: string) =>
       json<{ folder: FolderRow }>('/folders', {

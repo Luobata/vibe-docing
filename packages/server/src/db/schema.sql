@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 CREATE INDEX IF NOT EXISTS idx_nodes_tree ON nodes(tree_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
+
+CREATE TABLE IF NOT EXISTS discussion_messages (
+  id TEXT PRIMARY KEY,
+  node_id TEXT NOT NULL REFERENCES nodes(id),
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  promoted_node_id TEXT,
+  promoted_mode TEXT CHECK(promoted_mode IN ('section', 'child'))
+);
+CREATE INDEX IF NOT EXISTS idx_discussion_messages_node ON discussion_messages(node_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_vault_file
   ON nodes(vault_root, file_path)
   WHERE vault_root IS NOT NULL AND file_path IS NOT NULL;

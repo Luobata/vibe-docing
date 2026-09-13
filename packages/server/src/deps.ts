@@ -13,6 +13,8 @@ import { createVisualArtifactRepo } from './repo/visual-artifact-repo'
 import { createAnswerService } from './service/answer-service'
 import { createShareService } from './service/share-service'
 import { createVaultService } from './service/vault-service'
+import { createDiscussionRepo } from './repo/discussion-repo'
+import { createDiscussionService } from './service/discussion-service'
 import { systemClock, type Clock } from './util/clock'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -24,6 +26,8 @@ export interface AppDeps {
   clock: Clock
   context: ReturnType<typeof createContextEngine>
   db: Db
+  discussionMessages: ReturnType<typeof createDiscussionRepo>
+  discussion: ReturnType<typeof createDiscussionService>
   merges: ReturnType<typeof createMergeRepo>
   nodes: ReturnType<typeof createNodeRepo>
   providerOverride?: Provider
@@ -57,14 +61,20 @@ export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string
     nodes,
     settings,
   })
+  const annotations = createAnnotationRepo(options.db, clock)
+  const merges = createMergeRepo(options.db, clock)
+  const discussionMessages = createDiscussionRepo(options.db, clock)
+  const discussion = createDiscussionService({ db: options.db, nodes, vault, discussionMessages, merges, settings, annotations, versions })
 
   return {
-    annotations: createAnnotationRepo(options.db, clock),
+    annotations,
     answer: createAnswerService({ nodes, segments, settings, versions, visualArtifacts }),
     clock,
     context,
     db: options.db,
-    merges: createMergeRepo(options.db, clock),
+    discussionMessages,
+    discussion,
+    merges,
     nodes,
     segments,
     settings,
