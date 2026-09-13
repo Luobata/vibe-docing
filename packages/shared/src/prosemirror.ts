@@ -12,7 +12,8 @@ export type ProseMirrorRenderRun =
 function parseDocument(json: string | null): ProseMirrorNode | undefined {
   if (!json) return undefined
   try {
-    return JSON.parse(json) as ProseMirrorNode
+    const document = JSON.parse(json) as ProseMirrorNode | null
+    return document?.type === 'doc' ? document : undefined
   } catch {
     return undefined
   }
@@ -82,7 +83,11 @@ export function prosemirrorToRenderRuns(json: string | null): ProseMirrorRenderR
     })
   }
 
-  visit(document)
+  try {
+    visit(document)
+  } catch {
+    return []
+  }
   flushText()
   return runs
 }

@@ -8,6 +8,7 @@ import { ApiError } from '../api/client'
 import { ApiProvider } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor'
+import { EditorView } from '@codemirror/view'
 
 beforeAll(() => {
   const rect = () => new DOMRect(0, 0, 1, 1)
@@ -41,6 +42,79 @@ function documentNode(patch: Partial<NodeRow> = {}): NodeRow {
 }
 
 describe('DocumentEditor', () => {
+  it('ignores generating changes across debounce, explicit, keepalive and unmount saves, then resumes editing', async () => {
+    const initial = documentNode({ status: 'streaming' })
+    const saveDocumentContent = vi.fn(async (_id: string, body: { source: string }) => ({
+      content: { revision: 8 }, node: { ...initial, status: 'complete', document_content: body.source, content_revision: 8 },
+    }))
+    const ref = createRef<DocumentEditorHandle>()
+    const editor = (node: NodeRow) => (
+      <ApiProvider api={{ saveDocumentContent } as never}>
+        <DocumentEditor annotations={[]} node={node} onSaved={() => {}} onSelect={() => {}} ref={ref} />
+      </ApiProvider>
+    )
+    const { container, rerender, unmount } = render(editor(initial))
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
+    const view = EditorView.findFromDOM(container.querySelector('.cm-editor')!)!
+    act(() => {
+      view.focus()
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'unexpected change while generating' } })
+    })
+    expect(screen.getByTestId('doc-view')).toHaveAttribute('data-save-state', 'clean')
+    await act(async () => {
+      await ref.current!.flush()
+      window.dispatchEvent(new Event('beforeunload'))
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      delete (document as unknown as { visibilityState?: string }).visibilityState
+      await new Promise((resolve) => setTimeout(resolve, 800))
+    })
+    expect(saveDocumentContent).not.toHaveBeenCalled()
+
+    // Completion must replace the generating text even if the editor stayed focused.
+    rerender(editor(documentNode({ document_content: '# Finished', content_revision: 7 })))
+    await waitFor(() => expect(view.state.doc.toString()).toBe('# Finished'))
+    act(() => { view.dispatch({ changes: { from: view.state.doc.length, insert: '\nUser edit' } }) })
+    await act(async () => { await ref.current!.flush() })
+    expect(saveDocumentContent).toHaveBeenCalledOnce()
+    expect(saveDocumentContent).toHaveBeenCalledWith(initial.id, expect.objectContaining({
+      baseRevision: 7, source: '# Finished\nUser edit',
+    }))
+
+    rerender(editor({ ...initial, document_content: 'next generation' }))
+    act(() => { view.dispatch({ changes: { from: 0, insert: 'ignored' } }) })
+    unmount()
+    expect(saveDocumentContent).toHaveBeenCalledOnce()
+  })
+
+  it('does not follow an old in-flight save with another save after generation starts', async () => {
+    const initial = documentNode()
+    let finish!: (value: unknown) => void
+    const saveDocumentContent = vi.fn(() => new Promise((resolve) => { finish = resolve }))
+    const onSaved = vi.fn()
+    const ref = createRef<DocumentEditorHandle>()
+    const editor = (node: NodeRow) => (
+      <ApiProvider api={{ saveDocumentContent } as never}>
+        <DocumentEditor annotations={[]} node={node} onSaved={onSaved} onSelect={() => {}} ref={ref} />
+      </ApiProvider>
+    )
+    const { container, rerender } = render(editor(initial))
+    fireEvent.click(screen.getByRole('tab', { name: '编辑' }))
+    const view = EditorView.findFromDOM(container.querySelector('.cm-editor')!)!
+    act(() => { view.dispatch({ changes: { from: 0, insert: 'edit' } }) })
+    let pending!: Promise<void>
+    let waiting!: Promise<void>
+    act(() => { pending = ref.current!.flush(); waiting = ref.current!.flush() })
+    rerender(editor({ ...initial, status: 'streaming', document_content: 'generating' }))
+    await act(async () => {
+      finish({ content: { revision: 5 }, node: { ...initial, content_revision: 5 } })
+      await Promise.all([pending, waiting])
+    })
+    expect(saveDocumentContent).toHaveBeenCalledOnce()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(screen.getByTestId('doc-view')).toHaveAttribute('data-save-state', 'clean')
+  })
+
   it('saves native Markdown without converting it to editor JSON', async () => {
     const node = documentNode()
     const saveDocumentContent = vi.fn(async (_id: string, body: { source: string }) => ({

@@ -131,9 +131,14 @@ export function createVaultService(options: {
     if (!node.file_path || !node.vault_root) return ensureNodeFile(node)
     const source = readSource(node.vault_root, node.file_path)
     if (source === undefined) return node
+    const contentHash = hash(source)
+    const modifiedAt = lstatSync(absolutePath(node.vault_root, node.file_path)).mtimeMs
+    // Generation can update the DB while its last-written vault file stays unchanged.
+    if (contentHash === node.content_hash
+      || modifiedAt <= Date.parse(node.content_updated_at ?? '1970-01-01T00:00:00.000Z')) return node
     return options.nodes.syncExternalContent({
       content: source,
-      contentHash: hash(source),
+      contentHash,
       fileKind: kindFor(node),
       id: node.id,
     })

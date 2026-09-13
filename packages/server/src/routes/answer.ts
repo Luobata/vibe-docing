@@ -52,6 +52,7 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
       if (controller.signal.aborted || reply.raw.destroyed) return
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
     }
+    const heartbeat = setInterval(() => send({ type: 'ping' }), 10_000)
 
     try {
       const node = await app.deps.answer.generate(
@@ -69,6 +70,7 @@ export function registerAnswerRoutes(app: DecoratedApp): void {
         })
       }
     } finally {
+      clearInterval(heartbeat)
       request.raw?.off?.('close', abortOnRequestClose)
       reply.raw.off?.('close', abortOnReplyClose)
       if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end()

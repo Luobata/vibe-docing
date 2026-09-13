@@ -1,5 +1,5 @@
 import type { DecoratedApp } from '../app'
-import { documentContentOf } from '@vibe/shared'
+import { documentContentOf, legacyDocumentToMarkdown } from '@vibe/shared'
 import { prosemirrorToPlainText } from '../context/prosemirror'
 import { lineDiff } from '../service/diff'
 
@@ -65,6 +65,11 @@ export function registerVersionRoutes(app: DecoratedApp): void {
       })
       return updated
     })
-    return { node: revert() }
+    const updated = revert()
+    const kind = updated.file_kind === 'canvas' || updated.file_kind === 'base' ? updated.file_kind : 'markdown'
+    const source = kind === 'markdown'
+      ? legacyDocumentToMarkdown(documentContentOf(updated), updated.content_schema_version ?? 0)
+      : documentContentOf(updated) ?? ''
+    return { node: app.deps.vault.writeNode(updated, source, kind) }
   })
 }

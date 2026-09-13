@@ -1,10 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openMemoryDb } from '../db/connection'
 import { createDeps } from '../deps'
 import { fixedClock } from '../util/clock'
+import { buildApp } from '../app'
+import { createMockProvider } from '../provider/mock-provider'
 
 const directories: string[] = []
 
@@ -13,6 +15,63 @@ afterEach(() => {
 })
 
 describe('VaultService', () => {
+  it('keeps a completed generation when a GET hydrates its unchanged empty file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vibe-vault-'))
+    directories.push(root)
+    const deps = createDeps({ db: openMemoryDb(), vaultPath: root })
+    deps.settings.set('tags.autoGenerate', 'false')
+    const app = buildApp(deps)
+    try {
+      const created = await app.inject({ method: 'POST', url: '/api/trees', payload: { title: 'Generated' } })
+      const { rootNode } = created.json()
+      const done = await deps.answer.generate({
+        nodeId: rootNode.id,
+        provider: createMockProvider({ chunks: ['generated', ' content'] }),
+        userInput: 'test',
+      }, () => {})
+      expect(done.document_content).toContain('generated content')
+      const path = join(root, done.file_path!)
+      // Even a newer mtime must not make our unchanged empty file authoritative.
+      const future = new Date(Date.parse(done.content_updated_at!) + 10_000)
+      utimesSync(path, future, future)
+      for (let index = 0; index < 2; index += 1) {
+        const response = await app.inject({ method: 'GET', url: `/api/nodes/${done.id}` })
+        expect(response.statusCode).toBe(200)
+        expect(response.json().node).toMatchObject({
+          document_content: done.document_content,
+          content_revision: done.content_revision,
+        })
+      }
+      expect(readFileSync(path, 'utf8')).toBe('')
+    } finally {
+      await app.close()
+      deps.db.close()
+    }
+  })
+
+  it.each([-1, 0, 1])('imports a changed file only when newer than the DB (offset %i seconds)', (offset) => {
+    const root = mkdtempSync(join(tmpdir(), 'vibe-vault-'))
+    directories.push(root)
+    const updatedAt = '2026-08-12T00:00:00.000Z'
+    const deps = createDeps({ clock: fixedClock(updatedAt), db: openMemoryDb(), vaultPath: root })
+    try {
+      const node = deps.vault.ensureNodeFile(deps.trees.create('External').rootNode)
+      const generated = deps.nodes.updateGeneration(node.id, {
+        aiResponse: '{"type":"doc","content":[{"type":"text","text":"DB body"}]}', status: 'complete',
+      })
+      const path = join(root, node.file_path!)
+      writeFileSync(path, '# External edit\n')
+      const modifiedAt = new Date(Date.parse(updatedAt) + offset * 1000)
+      utimesSync(path, modifiedAt, modifiedAt)
+      const hydrated = deps.vault.hydrateNode(generated)
+      expect(hydrated.document_content).toBe(offset > 0 ? '# External edit\n' : generated.document_content)
+      expect(hydrated.content_revision).toBe(generated.content_revision! + (offset > 0 ? 1 : 0))
+      expect(deps.vault.hydrateNode(hydrated).content_revision).toBe(hydrated.content_revision)
+    } finally {
+      deps.db.close()
+    }
+  })
+
   it('imports Markdown, Canvas, and Bases while preserving their source', () => {
     const root = mkdtempSync(join(tmpdir(), 'vibe-vault-'))
     directories.push(root)

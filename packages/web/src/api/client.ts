@@ -332,6 +332,7 @@ export function createApi(options?: {
       signal?: AbortSignal,
     ): Promise<void> {
       let detachAbort: (() => void) | undefined
+      let watchdog: ReturnType<typeof setInterval> | undefined
       try {
         const response = await fetchImpl(`${base}/nodes/${nodeId}/answer`, {
           body: JSON.stringify({ userInput }),
@@ -351,23 +352,44 @@ export function createApi(options?: {
         detachAbort = () => signal?.removeEventListener('abort', cancelReader)
         if (signal?.aborted) cancelReader()
 
+        let lastActivityAt = Date.now()
+        watchdog = setInterval(() => {
+          if (Date.now() - lastActivityAt > 45_000) {
+            void reader.cancel().catch(() => {})
+          }
+        }, 5_000)
+        let sawDone = false
+        let sawError = false
+        const streamHandlers: AnswerStreamHandlers = {
+          ...handlers,
+          onDone(node) {
+            sawDone = true
+            handlers.onDone(node)
+          },
+          onError(message) {
+            sawError = true
+            handlers.onError(message)
+          },
+        }
         const decoder = new TextDecoder()
         let buffer = ''
         for (;;) {
           signal?.throwIfAborted()
           const { done, value } = await reader.read()
           signal?.throwIfAborted()
+          if (value?.byteLength) lastActivityAt = Date.now()
           buffer += decoder.decode(value, { stream: !done })
           const frames = buffer.split(/\r?\n\r?\n/)
           buffer = frames.pop() ?? ''
           for (const frame of frames) {
             signal?.throwIfAborted()
-            handleSseFrame(frame, handlers)
+            handleSseFrame(frame, streamHandlers)
           }
           if (done) break
         }
         signal?.throwIfAborted()
-        if (buffer.trim()) handleSseFrame(buffer, handlers)
+        if (buffer.trim()) handleSseFrame(buffer, streamHandlers)
+        if (!sawDone && !sawError) handlers.onError('连接已中断，请重试')
       } catch (error) {
         if (isAbortError(error, signal)) {
           handlers.onCancelled?.()
@@ -375,6 +397,7 @@ export function createApi(options?: {
         }
         throw error
       } finally {
+        if (watchdog !== undefined) clearInterval(watchdog)
         detachAbort?.()
       }
     },

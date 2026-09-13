@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildApp } from '../app'
 import { openMemoryDb } from '../db/connection'
 import { createDeps } from '../deps'
@@ -16,6 +16,46 @@ function setup(chunks: string[] = ['A', 'B']) {
 }
 
 describe('answer SSE route', () => {
+  it.each(['complete', 'error'])('sends heartbeats while the provider is silent and clears the timer on %s', async (outcome) => {
+    const { app, deps, rootNode } = setup()
+    let release!: () => void
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    const providerStarted = new Promise<void>((resolve) => { started = resolve })
+    deps.providerOverride = {
+      complete: async () => '',
+      async *stream() {
+        started()
+        await waiting
+        if (outcome === 'error') throw new Error('provider failed')
+        yield 'after thinking'
+      },
+    }
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    const pending = Promise.resolve(app.inject({
+      method: 'POST', payload: { userInput: '问题' }, url: `/api/nodes/${rootNode.id}/answer`,
+    }))
+    try {
+      await providerStarted
+      await vi.advanceTimersByTimeAsync(20_000)
+      release()
+      const response = await pending
+      const events = response.body.trim().split('\n\n').map((frame) => JSON.parse(frame.slice(6)))
+      expect(events.map((event) => event.type)).toEqual(outcome === 'complete'
+        ? ['ping', 'ping', 'chunk', 'done'] : ['ping', 'ping', 'error'])
+      expect(response.headers['content-type']).toBe('text/event-stream; charset=utf-8')
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      release()
+      await pending
+      vi.useRealTimers()
+      await app.close()
+      deps.db.close()
+    }
+  })
+
   it('streams chunks followed by the completed node', async () => {
     const { app, rootNode } = setup()
     const response = await app.inject({

@@ -147,10 +147,14 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   const inFlightRef = useRef<Promise<void> | null>(null)
   const flushRef = useRef<(keepalive?: boolean) => Promise<void>>(async () => {})
   const selectionRef = useRef<PlainSelection | null>(null)
+  const streamingRef = useRef(node.status === 'streaming')
+  streamingRef.current = node.status === 'streaming'
+  const loadedStatusRef = useRef(node.status)
   const editSessionId = useRef(sessionId(node.id)).current
   const fileKind: 'base' | 'markdown' = node.file_kind === 'base' ? 'base' : 'markdown'
 
   function markChanged(value: string): void {
+    if (streamingRef.current) return
     setSource(value)
     latestRef.current = value
     setSaveState(value === lastSavedRef.current ? 'clean' : 'dirty')
@@ -159,6 +163,7 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   }
 
   async function saveLatest(keepalive = false): Promise<void> {
+    if (streamingRef.current) return
     if (latestRef.current === lastSavedRef.current) return
     const submitted = latestRef.current
     setSaveState('saving')
@@ -174,19 +179,22 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       const result = keepalive
         ? await api.saveDocumentContent(node.id, payload, { keepalive: true })
         : await api.saveDocumentContent(node.id, payload)
+      if (streamingRef.current) return
       revisionRef.current = result.content.revision
       lastSavedRef.current = submitted
       onSaved(result.node)
       setSaveState(latestRef.current === submitted ? 'saved' : 'dirty')
     } catch (error) {
-      setSaveState(error instanceof ApiError && error.status === 409 ? 'conflict' : 'error')
+      if (!streamingRef.current) setSaveState(error instanceof ApiError && error.status === 409 ? 'conflict' : 'error')
       throw error
     }
   }
 
   async function flush(keepalive = false): Promise<void> {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    if (streamingRef.current) return
     if (inFlightRef.current) await inFlightRef.current.catch(() => {})
+    if (streamingRef.current) return
     if (latestRef.current === lastSavedRef.current) return
     const request = saveLatest(keepalive)
     inFlightRef.current = request
@@ -199,7 +207,13 @@ export const MarkdownEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
   useEffect(() => {
     const next = sourceFromNode(node)
-    if (editorViewRef.current?.hasFocus && node.status !== 'streaming') return
+    const wasStreaming = loadedStatusRef.current === 'streaming'
+    loadedStatusRef.current = node.status
+    if (editorViewRef.current?.hasFocus && node.status !== 'streaming' && !wasStreaming) return
+    if (node.status === 'streaming' && timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
     setSource(next)
     latestRef.current = next
     lastSavedRef.current = next

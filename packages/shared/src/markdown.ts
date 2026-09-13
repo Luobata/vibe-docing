@@ -73,15 +73,19 @@ function block(node: ProseMirrorNode): string {
   return children(node)
 }
 
-/** Convert legacy editor JSON once, without ever parsing and rewriting native Markdown. */
-export function legacyDocumentToMarkdown(source: string | null, schemaVersion = 0): string {
+/** Recognize editor documents by shape; native Markdown remains byte-for-byte unchanged. */
+export function legacyDocumentToMarkdown(source: string | null, _schemaVersion = 0): string {
   if (!source) return ''
-  if (schemaVersion >= 2) return source
+  let document: ProseMirrorNode
   try {
-    const document = JSON.parse(source) as ProseMirrorNode
-    if (!document || document.type !== 'doc') return source
-    return (document.content ?? []).map(block).join('\n\n').replace(/\n{3,}/g, '\n\n')
+    document = JSON.parse(source) as ProseMirrorNode
   } catch {
     return source
+  }
+  if (!document || document.type !== 'doc') return source
+  try {
+    return (document.content ?? []).map(block).join('\n\n').replace(/\n{3,}/g, '\n\n')
+  } catch {
+    return ''
   }
 }
