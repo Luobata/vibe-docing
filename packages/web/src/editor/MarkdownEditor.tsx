@@ -5,6 +5,7 @@ import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { ApiError } from '../api/client'
 import { useApi } from '../api/context'
+import { useCodeEnhancements } from '../doc/highlight-code'
 import { renderMarkdown } from '../doc/markdown'
 import { getPlainSelection, type PlainSelection } from '../doc/selection'
 import { VisualBlockView } from '../components/VisualBlockView'
@@ -90,9 +91,11 @@ function SaveIndicator({ state }: { state: SaveState }) {
 }
 
 function MarkdownPreview({ source }: { source: string }) {
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  useCodeEnhancements(bodyRef, [source])
   if (!source.trim()) {
     return (
-      <div aria-label="Markdown 预览" className="markdown-reading-view doc-body">
+      <div aria-label="Markdown 预览" className="markdown-reading-view doc-body" ref={bodyRef}>
         <p className="empty-state">这篇笔记还是空的，切到“编辑”开始写。</p>
       </div>
     )
@@ -110,7 +113,7 @@ function MarkdownPreview({ source }: { source: string }) {
   }
   if (cursor < source.length || parts.length === 0) parts.push({ key: `md-${cursor}`, source: source.slice(cursor) })
   return (
-    <div aria-label="Markdown 预览" className="markdown-reading-view doc-body">
+    <div aria-label="Markdown 预览" className="markdown-reading-view doc-body" ref={bodyRef}>
       {parts.map((part) => part.visual
         ? <VisualBlockView key={part.key} reference={part.visual} />
         : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(part.source ?? '') }} key={part.key} />)}

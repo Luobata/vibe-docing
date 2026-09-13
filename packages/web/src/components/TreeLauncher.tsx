@@ -1,7 +1,7 @@
 import type { TreeRow } from '@vibe/shared'
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useApi } from '../api/context'
-import type { Api } from '../api/client'
+import { ApiError, type Api, type FolderRow } from '../api/client'
 import { useWorkbench } from '../state/workbench-store'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Icon } from './Icon'
@@ -25,8 +25,8 @@ interface FolderTree {
   folders: FolderTreeNode[]
 }
 
-function buildFolderTree(trees: TreeRow[]): FolderTree | null {
-  if (!trees.some((tree) => tree.folder?.trim())) return null
+function buildFolderTree(trees: TreeRow[], folders: FolderRow[]): FolderTree | null {
+  if (folders.length === 0 && !trees.some((tree) => tree.folder?.trim())) return null
   const ungrouped: TreeRow[] = []
   const roots: FolderTreeNode[] = []
   const byPath = new Map<string, FolderTreeNode>()
@@ -46,6 +46,7 @@ function buildFolderTree(trees: TreeRow[]): FolderTree | null {
     }
     return current!
   }
+  for (const folder of folders) ensureFolder(folder.path.split('/'))
   for (const tree of trees) {
     const folder = tree.folder?.trim()
     if (!folder) {
@@ -119,6 +120,15 @@ export function TreeLauncher() {
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [trees, setTrees] = useState<TreeRow[]>([])
+  const [folders, setFolders] = useState<FolderRow[]>([])
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [folderBusy, setFolderBusy] = useState(false)
+  const folderTriggerRef = useRef<HTMLButtonElement>(null)
+  const [pendingFolderDelete, setPendingFolderDelete] = useState<{
+    path: string
+    trigger: HTMLButtonElement
+  } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [pendingDelete, setPendingDelete] = useState<PendingTreeDelete | null>(null)
@@ -147,6 +157,17 @@ export function TreeLauncher() {
   }, [api, treeId])
 
   useEffect(() => {
+    let active = true
+    const listFolders = (api as Partial<Api>).listFolders
+    if (listFolders) {
+      void listFolders()
+        .then((result) => { if (active) setFolders(result.folders) })
+        .catch(() => { if (active) setError('文件夹列表加载失败，请稍后重试。') })
+    }
+    return () => { active = false }
+  }, [api, treeId])
+
+  useEffect(() => {
     const reload = () => {
       const listTrees = (api as Partial<Api>).listTrees
       if (!listTrees) return
@@ -167,10 +188,11 @@ export function TreeLauncher() {
     return () => document.removeEventListener('mousedown', close)
   }, [moveForId])
 
-  const folderTree = buildFolderTree(trees)
+  const folderTree = buildFolderTree(trees, folders)
   // 移动候选文件夹：全部 folder 路径去重排序。
   const allFolders = [...new Set(
-    trees.map((tree) => tree.folder?.trim()).filter((folder): folder is string => !!folder),
+    [...trees.map((tree) => tree.folder?.trim()), ...folders.map((folder) => folder.path)]
+      .filter((folder): folder is string => !!folder),
   )].sort((left, right) => left.localeCompare(right))
 
   function toggleFolder(path: string): void {
@@ -181,6 +203,53 @@ export function TreeLauncher() {
       persistCollapsedFolders(next)
       return next
     })
+  }
+
+  function closeFolderForm(): void {
+    setCreatingFolder(false)
+    setFolderName('')
+    folderTriggerRef.current?.focus()
+  }
+
+  async function createFolder(): Promise<void> {
+    if (folderBusy || !folderName.trim()) return
+    setFolderBusy(true)
+    setError(null)
+    try {
+      const { folder } = await api.createFolder(folderName.trim())
+      setFolders((current) => [...current.filter((item) => item.path !== folder.path), folder])
+      setCollapsedFolders((current) => {
+        const next = new Set(current)
+        const parts = folder.path.split('/')
+        parts.forEach((_, index) => next.delete(parts.slice(0, index + 1).join('/')))
+        persistCollapsedFolders(next)
+        return next
+      })
+      closeFolderForm()
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status === 400
+        ? '请输入有效的文件夹名称。'
+        : '新建文件夹失败，请稍后重试。')
+    } finally {
+      setFolderBusy(false)
+    }
+  }
+
+  async function removeFolder(path: string): Promise<void> {
+    setDeleteBusy(true)
+    setDeleteError(null)
+    try {
+      await api.removeFolder(path)
+      setFolders((current) => current.filter((folder) => folder.path !== path))
+      setPendingFolderDelete(null)
+      folderTriggerRef.current?.focus()
+    } catch (cause) {
+      setDeleteError(cause instanceof ApiError && cause.status === 409
+        ? '文件夹中已有笔记库，请先移出后再删除。'
+        : '删除文件夹失败，请稍后重试。')
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   async function create(): Promise<void> {
@@ -485,37 +554,55 @@ export function TreeLauncher() {
   function renderFolder(folder: FolderTreeNode) {
     const expanded = !collapsedFolders.has(folder.path)
     const label = folder.seg === '' ? '未分组' : folder.seg
+    const count = folderTreeCount(folder)
+    const canDelete = count === 0 && folder.subdirs.length === 0 && folders.some((item) => item.path === folder.path)
     // 有效放置目标：目标文件夹 ≠ 当前所在文件夹（原位不亮、drop 无动作）。
     const dropValid = dragTree !== null && dragTree.from !== (folder.path || null)
     return (
       <li className="tree-folder" key={folder.path || '__ungrouped__'}>
-        <button
-          aria-expanded={expanded}
-          aria-label={`${expanded ? '收起' : '展开'}文件夹“${label}”`}
-          className={`tree-dir-header${dropTargetFolder === folder.path && dropValid ? ' is-drop-target' : ''}`}
-          data-folder-path={folder.path}
-          data-launch-row
-          onClick={() => toggleFolder(folder.path)}
-          onDragLeave={() => { if (dropTargetFolder === folder.path) setDropTargetFolder(null) }}
-          onDragOver={(event) => {
-            if (!dndAccepts(event, dragTree) || !dropValid) return
-            event.preventDefault()
-            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-            if (dropTargetFolder !== folder.path) setDropTargetFolder(folder.path)
-          }}
-          onDrop={(event) => {
-            if (!dndAccepts(event, dragTree)) return
-            event.preventDefault()
-            setDropTargetFolder(null)
-            if (dropValid) handleFolderDrop(folder.path)
-          }}
-          type="button"
-        >
-          <span aria-hidden="true" className="tree-node-toggle"><span><Icon name="chevron-right" size={12} /></span></span>
-          <Icon name="folder" size={12} />
-          <span className="tree-dir-name">{label}</span>
-          <span className="tree-dir-count">{folderTreeCount(folder)}</span>
-        </button>
+        <div className="tree-folder-header">
+          <button
+            aria-expanded={expanded}
+            aria-label={`${expanded ? '收起' : '展开'}文件夹“${label}”`}
+            className={`tree-dir-header${dropTargetFolder === folder.path && dropValid ? ' is-drop-target' : ''}`}
+            data-folder-path={folder.path}
+            data-launch-row
+            onClick={() => toggleFolder(folder.path)}
+            onDragLeave={() => { if (dropTargetFolder === folder.path) setDropTargetFolder(null) }}
+            onDragOver={(event) => {
+              if (!dndAccepts(event, dragTree) || !dropValid) return
+              event.preventDefault()
+              if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+              if (dropTargetFolder !== folder.path) setDropTargetFolder(folder.path)
+            }}
+            onDrop={(event) => {
+              if (!dndAccepts(event, dragTree)) return
+              event.preventDefault()
+              setDropTargetFolder(null)
+              if (dropValid) handleFolderDrop(folder.path)
+            }}
+            type="button"
+          >
+            <span aria-hidden="true" className="tree-node-toggle"><span><Icon name="chevron-right" size={12} /></span></span>
+            <Icon name="folder" size={12} />
+            <span className="tree-dir-name">{label}</span>
+            <span className="tree-dir-count">{count}</span>
+          </button>
+          {canDelete && (
+            <button
+              aria-label={`删除文件夹“${folder.path}”`}
+              className="tree-item-action tree-folder-delete"
+              onClick={(event) => {
+                setDeleteError(null)
+                setPendingFolderDelete({ path: folder.path, trigger: event.currentTarget })
+              }}
+              title="删除空文件夹"
+              type="button"
+            >
+              <Icon name="trash" size={14} />
+            </button>
+          )}
+        </div>
         {expanded && (
           <ul className="tree-folder-children">
             {folder.subdirs.map((sub) => renderFolder(sub))}
@@ -547,7 +634,37 @@ export function TreeLauncher() {
         />
         <button disabled={busy || !title.trim()} onClick={() => { void create() }} title={title.trim() ? undefined : '请先输入名称'} type="button">新建笔记库</button>
       </div>
-      {trees.length > 0 && (
+      <div className="new-folder-row">
+        <button
+          aria-expanded={creatingFolder}
+          className="new-folder-trigger"
+          onClick={() => { setCreatingFolder(true); setError(null) }}
+          ref={folderTriggerRef}
+          type="button"
+        >
+          <Icon name="plus" size={14} />新建文件夹
+        </button>
+        {creatingFolder && (
+          <div className="new-folder-form">
+            <input
+              aria-label="新建文件夹名称"
+              autoFocus
+              disabled={folderBusy}
+              onChange={(event) => setFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return
+                if (event.key === 'Enter') { event.preventDefault(); void createFolder() }
+                if (event.key === 'Escape' && !folderBusy) { event.preventDefault(); closeFolderForm() }
+              }}
+              placeholder="文件夹名称，可用 工作/后端"
+              value={folderName}
+            />
+            <button disabled={folderBusy || !folderName.trim()} onClick={() => { void createFolder() }} type="button">创建</button>
+            <button disabled={folderBusy} onClick={closeFolderForm} type="button">取消</button>
+          </div>
+        )}
+      </div>
+      {(trees.length > 0 || folders.length > 0) && (
         <ul aria-label="已有笔记库" onKeyDown={handleListKeyDown}>
           {folderTree
             ? (
@@ -560,6 +677,17 @@ export function TreeLauncher() {
         </ul>
       )}
       {error && <p role="alert">{error}</p>}
+      {pendingFolderDelete && (
+        <ConfirmDialog
+          busy={deleteBusy}
+          error={deleteError}
+          message={`将删除空文件夹“${pendingFolderDelete.path}”。`}
+          onCancel={() => { setDeleteError(null); setPendingFolderDelete(null) }}
+          onConfirm={() => removeFolder(pendingFolderDelete.path)}
+          returnFocusTo={pendingFolderDelete.trigger}
+          title="删除文件夹"
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           busy={deleteBusy}

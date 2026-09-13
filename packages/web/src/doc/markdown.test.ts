@@ -131,6 +131,30 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img')
   })
+
+  it('linkifies bare URLs and opens external links in a new tab', () => {
+    const html = renderMarkdown('参考 https://example.com/docs?a=1 结束')
+    expect(html).toContain('<a href="https://example.com/docs?a=1"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener noreferrer"')
+  })
+
+  it('keeps mailto links clickable without forcing a new tab', () => {
+    const html = renderMarkdown('联系 foo@bar.com 或写 [邮箱](mailto:foo@bar.com)')
+    expect(html).toContain('href="mailto:foo@bar.com"')
+    expect(html).not.toContain('target="_blank"')
+  })
+
+  it('blocks javascript: and other non-allowlisted protocols from becoming links', () => {
+    const html = renderMarkdown('[点我](javascript:alert(1)) 与 [x](vbscript:msg) 与 [y](data:text/html,hi) 与 [z](file:///etc)')
+    expect(html).not.toContain('href="javascript:')
+    expect(html).not.toContain('href="vbscript:')
+    expect(html).not.toContain('href="data:')
+    expect(html).not.toContain('href="file:')
+    expect(html).not.toContain('<a ')
+    // blocked links degrade to their literal text, visibly
+    expect(html).toContain('点我')
+  })
 })
 
 describe('renderAnnotatedHtml', () => {

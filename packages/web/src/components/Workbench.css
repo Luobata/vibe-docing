@@ -187,6 +187,24 @@ button { font: inherit; color: inherit; }
 .new-tree-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .tree-launcher input { min-width: 0; }
 
+.tree-launcher .new-folder-row { margin-top: 6px; }
+.tree-launcher .new-folder-trigger,
+.tree-launcher .new-folder-form button {
+  min-height: 32px; padding: 4px 10px;
+  border: 1px solid transparent; border-radius: var(--r2);
+  background: transparent; color: var(--primary); font-weight: 600; cursor: pointer;
+}
+.tree-launcher .new-folder-trigger { display: flex; align-items: center; gap: 6px; }
+.tree-launcher .new-folder-trigger:hover,
+.tree-launcher .new-folder-form button:hover:not(:disabled) { background: var(--primary-tint); }
+.tree-launcher .new-folder-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; margin-top: 6px; }
+.tree-launcher .new-folder-form button:last-child { color: var(--text-2); font-weight: 500; }
+.tree-launcher .new-folder-form button:disabled { color: var(--text-4); cursor: not-allowed; }
+.tree-launcher .tree-folder-header { display: flex; align-items: center; gap: 2px; }
+.tree-launcher .tree-folder-header .tree-dir-header { width: auto; }
+.tree-launcher .tree-folder-delete { opacity: .75; }
+.tree-launcher .tree-folder-delete:hover { color: var(--danger); background: var(--danger-tint); }
+
 /* 输入框（新建树 / 重命名） */
 .tree-launcher input,
 .chat-box textarea,
@@ -251,6 +269,13 @@ button { font: inherit; color: inherit; }
 .settings-save-feedback { margin: 10px 0 0; color: var(--text-2); font-size: 13px; }
 .settings-save-feedback.is-success { color: var(--success); }
 .settings-save-feedback.inline-error { margin-top: 10px; }
+
+.settings-panel .settings-field-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.settings-panel .settings-source { padding: 1px 6px; border-radius: var(--r1); background: var(--fill-inset); color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
+.settings-panel .settings-env-hint { color: var(--text-3); font-size: 12px; line-height: 1.6; }
+.settings-panel .settings-test-connection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.settings-panel .settings-test-result { margin: 0; color: var(--danger); font-size: 12px; }
+.settings-panel .settings-test-result.is-success { color: var(--success); }
 
 /* 次级按钮（新建树 / 工具面板按钮）· ghost 风格 */
 .tree-launcher .new-tree-row button,
@@ -1306,6 +1331,27 @@ button { font: inherit; color: inherit; }
   line-height: 1.55;
 }
 .doc-body pre code { padding: 0; border: 0; color: var(--text-1); background: transparent; font-family: inherit; font-size: 1em; line-height: inherit; }
+
+/* ============================================================
+   R20 P0 代码块增强（仅新增规则；上方 pre/code 几何为 R8/R10 验收产物，
+   一行未改）。shiki token 的着色 span 带 inline color，天然覆盖继承色，
+   无需触碰既有 color 声明。
+   ============================================================ */
+/* 复制按钮停靠位：position:relative 不产生任何视觉位移 */
+.doc-body pre { position: relative; }
+.doc-body pre > button.code-copy {
+  position: absolute; top: 8px; right: 8px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-2); border-radius: var(--r1);
+  background: var(--surface); color: var(--text-3);
+  font: 11px/1.6 var(--sans);
+  opacity: 0; transition: opacity .12s ease;
+  cursor: pointer;
+}
+.doc-body pre:hover > button.code-copy,
+.doc-body pre > button.code-copy:focus-visible { opacity: 1; }
+.doc-body pre > button.code-copy:hover { color: var(--text-1); border-color: var(--border-3); }
+.doc-body pre > button.code-copy.is-copied { color: var(--primary); border-color: var(--primary); opacity: 1; }
 
 /* ============================================================
    可编辑正文 · 安静、编辑优先的文档画布

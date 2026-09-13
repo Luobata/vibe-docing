@@ -1,17 +1,6 @@
 import type { NodeRow } from '@vibe/shared'
 import type { DecoratedApp } from '../app'
-
-/** 文件夹路径清洗：与笔记目录（vault-service.sanitizeDirectory）同一纪律。 */
-function sanitizeTreeFolder(input: string): string {
-  return input
-    .split(/[\\/]+/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
-    .map((segment) => segment.replace(/[^\p{L}\p{N}_\- ]/gu, '').trim())
-    .filter((segment) => segment.length > 0)
-    .slice(0, 6)
-    .join('/')
-}
+import { sanitizeTreeFolder } from '../util/folder-path'
 
 function objectBody(body: unknown): Record<string, unknown> | undefined {
   return typeof body === 'object' && body !== null && !Array.isArray(body)

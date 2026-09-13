@@ -3,6 +3,11 @@ import type { Db } from '../db/connection'
 import type { Clock } from '../util/clock'
 import { newId } from '../util/ids'
 
+interface FolderRow {
+  path: string
+  created_at: string
+}
+
 export function createTreeRepo(db: Db, clock: Clock) {
   function get(id: string): TreeRow | undefined {
     return db.prepare('SELECT * FROM trees WHERE id = ? AND is_deleted = 0').get(id) as
@@ -81,5 +86,25 @@ export function createTreeRepo(db: Db, clock: Clock) {
     return result.changes === 1 ? get(id) : undefined
   }
 
-  return { create, get, list, listDeleted, rename, restore, setFolder, softDelete }
+  function listFolders(): FolderRow[] {
+    return db.prepare('SELECT * FROM tree_folders ORDER BY path').all() as FolderRow[]
+  }
+
+  const createFolder: (path: string) => { folder: FolderRow; created: boolean } = db.transaction((path: string) => {
+    const inserted = db.prepare(
+      'INSERT INTO tree_folders (path, created_at) VALUES (?, ?) ON CONFLICT(path) DO NOTHING',
+    ).run(path, clock.now())
+    const folder = db.prepare('SELECT * FROM tree_folders WHERE path = ?').get(path) as FolderRow
+    return { folder, created: inserted.changes === 1 }
+  })
+
+  const removeFolder: (path: string) => boolean = db.transaction((path: string) => {
+    if (db.prepare('SELECT 1 FROM trees WHERE is_deleted = 0 AND folder = ? LIMIT 1').get(path)) {
+      return false
+    }
+    db.prepare('DELETE FROM tree_folders WHERE path = ?').run(path)
+    return true
+  })
+
+  return { create, createFolder, get, list, listDeleted, listFolders, removeFolder, rename, restore, setFolder, softDelete }
 }

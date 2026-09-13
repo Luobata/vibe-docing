@@ -1,3 +1,8 @@
+CREATE TABLE IF NOT EXISTS tree_folders (
+  path TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS trees (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,

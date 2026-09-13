@@ -35,6 +35,12 @@ export function openDb(path: string): Db {
 // `CREATE TABLE IF NOT EXISTS` is a no-op on an existing table, so new columns
 // must be added explicitly.
 function migrate(db: Db): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tree_folders (
+      path TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    );
+  `)
   const treeColumns = db.prepare('PRAGMA table_info(trees)').all() as Array<{ name: string }>
   if (!treeColumns.some((column) => column.name === 'is_deleted')) {
     db.exec('ALTER TABLE trees ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')

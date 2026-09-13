@@ -19,6 +19,31 @@ afterEach(() => {
 })
 
 describe('db schema', () => {
+  it('adds persistent tree folders to an existing database and reopens idempotently', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vibe-tree-folders-'))
+    temporaryDirectories.push(directory)
+    const databasePath = join(directory, 'legacy.db')
+    const legacy = openDb(databasePath)
+    legacy.exec(`
+      DROP TABLE tree_folders;
+      INSERT INTO trees (id, title, folder, created_at, updated_at)
+        VALUES ('t1', '保留', '工作', 'then', 'then');
+    `)
+    const before = legacy.prepare('SELECT * FROM trees').all()
+    legacy.close()
+
+    const upgraded = openDb(databasePath)
+    expect(upgraded.prepare('SELECT * FROM trees').all()).toEqual(before)
+    upgraded.prepare('INSERT INTO tree_folders (path, created_at) VALUES (?, ?)').run('空目录/子目录', 'now')
+    upgraded.close()
+
+    const reopened = openDb(databasePath)
+    openDatabases.push(reopened)
+    expect(reopened.prepare('SELECT * FROM trees').all()).toEqual(before)
+    expect(reopened.prepare('SELECT * FROM tree_folders').all()).toEqual([{ path: '空目录/子目录', created_at: 'now' }])
+    expect(reopened.pragma('integrity_check')).toEqual([{ integrity_check: 'ok' }])
+  })
+
   it('creates all tables idempotently', () => {
     const db = openMemoryDb()
     openDatabases.push(db)

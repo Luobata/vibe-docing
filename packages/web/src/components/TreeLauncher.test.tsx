@@ -2,6 +2,7 @@ import type { NodeRow } from '@vibe/shared'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '../api/context'
+import { ApiError } from '../api/client'
 import { useWorkbench } from '../state/workbench-store'
 import { TreeLauncher } from './TreeLauncher'
 
@@ -220,6 +221,160 @@ describe('TreeLauncher folders', () => {
     await waitFor(() => expect(api.createTree).toHaveBeenCalledWith('缓存'))
     await waitFor(() => expect(setTreeFolder).toHaveBeenCalledWith('t9', '工作/后端'))
     expect(useWorkbench.getState().treeTitle).toBe('缓存')
+  })
+
+  it('creates and reloads an empty nested folder with ungrouped trees', async () => {
+    const folders: Array<{ path: string; created_at: string }> = []
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [tree('t1', '随想')] })),
+      listFolders: vi.fn(async () => ({ folders: [...folders] })),
+      createFolder: vi.fn(async (path: string) => {
+        const folder = { path, created_at: 'now' }
+        folders.push(folder)
+        return { folder }
+      }),
+    }
+    const view = render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    await screen.findByRole('button', { name: '随想' })
+    const trigger = screen.getByRole('button', { name: '新建文件夹' })
+    expect(trigger.tabIndex).toBe(0)
+    fireEvent.click(trigger)
+    fireEvent.change(screen.getByLabelText('新建文件夹名称'), { target: { value: '工作/后端' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    expect(await screen.findByRole('button', { name: '收起文件夹“后端”' })).toHaveTextContent('0')
+    expect(api.createFolder).toHaveBeenCalledWith('工作/后端')
+    expect(screen.getByRole('button', { name: '随想' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('新建文件夹名称')).toBeNull()
+    expect(trigger).toHaveFocus()
+    view.unmount()
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    expect(await screen.findByRole('button', { name: '收起文件夹“后端”' })).toHaveTextContent('0')
+  })
+
+  it('keeps the folder list visible after deleting the last tree', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [tree('t1', '最后的库')] })),
+      listFolders: vi.fn(async () => ({ folders: [{ path: '空目录', created_at: 'now' }] })),
+      deleteTree: vi.fn(async () => ({ ok: true })),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    await screen.findByRole('button', { name: '收起文件夹“空目录”' })
+    fireEvent.click(screen.getByRole('button', { name: '删除“最后的库”' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '最后的库' })).toBeNull())
+    expect(screen.getByRole('list', { name: '已有笔记库' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起文件夹“空目录”' })).toHaveTextContent('0')
+  })
+
+  it('only deletes explicit empty leaves and removes their implicit parents', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [] })),
+      listFolders: vi.fn(async () => ({ folders: ['a/b', 'c', 'c/d'].map((path) => ({ path, created_at: 'now' })) })),
+      removeFolder: vi.fn(async () => ({ ok: true })),
+    }
+    const { container } = render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    const first = await screen.findByRole('button', { name: '收起文件夹“a”' })
+    expect(screen.getByRole('list', { name: '已有笔记库' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '删除文件夹“a”' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '删除文件夹“c”' })).toBeNull()
+    expect(container.querySelector('button button')).toBeNull()
+    first.focus()
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    expect(screen.getByRole('button', { name: '收起文件夹“b”' })).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: '删除文件夹“a/b”' }))
+    expect(api.removeFolder).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '取消' }))
+    expect(api.removeFolder).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '删除文件夹“a/b”' })).toHaveFocus())
+    fireEvent.click(screen.getByRole('button', { name: '删除文件夹“a/b”' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '收起文件夹“a”' })).toBeNull())
+    expect(api.removeFolder).toHaveBeenCalledWith('a/b')
+
+    fireEvent.click(screen.getByRole('button', { name: '删除文件夹“c/d”' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '删除' }))
+    expect(await screen.findByRole('button', { name: '删除文件夹“c”' })).toBeInTheDocument()
+  })
+
+  it('hides deletion for folders occupied by trees including descendants and deduplicates paths', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [tree('t1', '笔记库', 'a/b')] })),
+      listFolders: vi.fn(async () => ({ folders: ['a', 'a/b'].map((path) => ({ path, created_at: 'now' })) })),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    await screen.findByRole('button', { name: '笔记库' })
+    expect(screen.getAllByRole('button', { name: '收起文件夹“b”' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '收起文件夹“a”' })).toHaveTextContent('1')
+    expect(screen.queryByRole('button', { name: /删除文件夹/ })).toBeNull()
+  })
+
+  it('guards folder creation during IME composition and cancels with Escape', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [] })),
+      listFolders: vi.fn(async () => ({ folders: [] })),
+      createFolder: vi.fn(async (path: string) => ({ folder: { path, created_at: 'now' } })),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    fireEvent.click(screen.getByRole('button', { name: '新建文件夹' }))
+    const input = screen.getByLabelText('新建文件夹名称')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.change(input, { target: { value: '工作' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(api.createFolder).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByLabelText('新建文件夹名称')).toBeNull()
+    expect(screen.getByRole('button', { name: '新建文件夹' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '新建文件夹' }))
+    fireEvent.change(screen.getByLabelText('新建文件夹名称'), { target: { value: '工作' } })
+    fireEvent.keyDown(screen.getByLabelText('新建文件夹名称'), { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: '收起文件夹“工作”' })).toHaveTextContent('0')
+    expect(api.createFolder).toHaveBeenCalledOnce()
+  })
+
+  it('offers empty folders in the move menu and accepts drops only after confirmation', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [tree('t1', '随想')] })),
+      listFolders: vi.fn(async () => ({ folders: [{ path: '空目录', created_at: 'now' }] })),
+      setTreeFolder: vi.fn(async () => ({ tree: tree('t1', '随想', '空目录') })),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    const target = await screen.findByRole('button', { name: '收起文件夹“空目录”' })
+    fireEvent.click(screen.getByRole('button', { name: '移动“随想”到文件夹' }))
+    expect(screen.getByRole('menuitem', { name: '空目录' })).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    const dataTransfer = { types: ['application/x-vibe-item'], setData: vi.fn(), effectAllowed: '', dropEffect: '' }
+    fireEvent.dragStart(screen.getByRole('button', { name: '随想' }), { dataTransfer })
+    fireEvent.dragOver(target, { dataTransfer })
+    expect(target).toHaveClass('is-drop-target')
+    fireEvent.drop(target, { dataTransfer })
+    expect(api.setTreeFolder).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '移入' }))
+    await waitFor(() => expect(target).toHaveTextContent('1'))
+    expect(api.setTreeFolder).toHaveBeenCalledWith('t1', '空目录')
+    expect(screen.queryByRole('button', { name: '删除文件夹“空目录”' })).toBeNull()
+  })
+
+  it('keeps failed creations editable and failed deletions visible with an error', async () => {
+    const api = {
+      listTrees: vi.fn(async () => ({ trees: [] })),
+      listFolders: vi.fn(async () => ({ folders: [{ path: '空目录', created_at: 'now' }] })),
+      createFolder: vi.fn(async () => { throw new ApiError(400, { error: 'invalid folder path' }) }),
+      removeFolder: vi.fn(async () => { throw new ApiError(409, { code: 'FOLDER_NOT_EMPTY' }) }),
+    }
+    render(<ApiProvider api={api as never}><TreeLauncher /></ApiProvider>)
+    await screen.findByRole('button', { name: '收起文件夹“空目录”' })
+    fireEvent.click(screen.getByRole('button', { name: '新建文件夹' }))
+    fireEvent.change(screen.getByLabelText('新建文件夹名称'), { target: { value: '../' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('请输入有效的文件夹名称。')
+    expect(screen.getByLabelText('新建文件夹名称')).toHaveValue('../')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除文件夹“空目录”' }))
+    const dialog = screen.getByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('文件夹中已有笔记库')
+    expect(screen.getByRole('button', { name: '收起文件夹“空目录”' })).toBeInTheDocument()
   })
 })
 

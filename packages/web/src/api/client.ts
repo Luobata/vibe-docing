@@ -36,6 +36,21 @@ export interface AnswerStreamHandlers {
   onVisual?(event: VisualStreamEvent): void
 }
 
+export interface FolderRow {
+  path: string
+  created_at: string
+}
+
+export type ProviderConfigSource = 'settings' | 'env' | 'default' | 'unset'
+export interface ProviderSettingsView extends SettingsView {
+  sources: Record<'apiKey' | 'baseUrl' | 'model', ProviderConfigSource>
+  sourceVars: Partial<Record<'apiKey' | 'baseUrl' | 'model', string>>
+}
+
+export type ProviderTestResult =
+  | { ok: true; model: string; latencyMs: number }
+  | { ok: false; code: 'invalid-config' | 'unreachable' | 'timeout' | 'auth' | 'not-found' | 'http-error'; status?: number }
+
 export interface VersionDiffLine {
   text: string
   type: 'same' | 'add' | 'del'
@@ -108,6 +123,17 @@ export function createApi(options?: {
   }
 
   return {
+    listFolders: () => json<{ folders: FolderRow[] }>('/folders'),
+    createFolder: (path: string) =>
+      json<{ folder: FolderRow }>('/folders', {
+        body: JSON.stringify({ path }),
+        method: 'POST',
+      }),
+    removeFolder: (path: string) =>
+      json<{ ok: true }>('/folders/remove', {
+        body: JSON.stringify({ path }),
+        method: 'POST',
+      }),
     createNote: (
       nodeId: string,
       body: {
@@ -197,7 +223,13 @@ export function createApi(options?: {
     getVisualArtifact: (artifactId: string, revision: number) =>
       json<{ artifact: VisualArtifact }>(`/visual-artifacts/${encodeURIComponent(artifactId)}/${revision}`),
     getSettings: (signal?: AbortSignal) =>
-      json<SettingsView>('/settings', { signal }),
+      json<ProviderSettingsView>('/settings', { signal }),
+    testProvider: (config: { baseUrl: string; model: string; apiKey?: string }, signal?: AbortSignal) =>
+      json<ProviderTestResult>('/settings/test', {
+        body: JSON.stringify(config),
+        method: 'POST',
+        signal,
+      }),
     pickDirectory: (kind: 'vault' | 'project') =>
       json<{ path: string }>('/system/pick-directory', {
         body: JSON.stringify({ kind }),
@@ -205,7 +237,7 @@ export function createApi(options?: {
       }),
     syncVault: () => json<{ imported: number; path: string; scanned: number }>('/vault/sync', { method: 'POST' }),
     updateSettings: (patch: SettingsPatch, signal?: AbortSignal) =>
-      json<SettingsView>('/settings', {
+      json<ProviderSettingsView>('/settings', {
         body: JSON.stringify(patch),
         method: 'PUT',
         signal,

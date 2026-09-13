@@ -1,5 +1,6 @@
 import { documentContentOf, prosemirrorToPlainText, prosemirrorToRenderRuns, type AnnotationRow, type NodeRow, type VisualReference } from '@vibe/shared'
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCodeEnhancements } from '../doc/highlight-code'
 import type { AnnotationRange } from '../doc/highlight'
 import { renderAnnotatedHtml } from '../doc/markdown'
 import { getPlainSelection, type PlainSelection } from '../doc/selection'
@@ -34,14 +35,29 @@ export function DocView({
   const [subdocTitleCanExpand, setSubdocTitleCanExpand] = useState(false)
   const [subdocTitleExpanded, setSubdocTitleExpanded] = useState(false)
   const documentContent = documentContentOf(node)
-  const text = prosemirrorToPlainText(documentContent)
-  const ranges: AnnotationRange[] = annotations.flatMap((annotation) => {
+  // 渲染路径缓存（契约 Q1-c 第 1 类）：documentContent 是原始字符串（Object.is
+  // 稳定），流式 token 之外的重渲染不再逐 run 重算 markdown+批注。
+  const text = useMemo(() => prosemirrorToPlainText(documentContent), [documentContent])
+  const ranges: AnnotationRange[] = useMemo(() => annotations.flatMap((annotation) => {
     if ('from' in annotation) return [annotation]
     return annotation.anchor_from === null || annotation.anchor_to === null
       ? []
       : [{ from: annotation.anchor_from, id: annotation.id, to: annotation.anchor_to }]
-  })
-  const runs = prosemirrorToRenderRuns(documentContent)
+  }), [annotations])
+  const runs = useMemo(() => prosemirrorToRenderRuns(documentContent), [documentContent])
+  const annotatedHtml = useMemo(
+    () => runs.map((run) => {
+      if (run.type !== 'text') return null
+      return renderAnnotatedHtml(run.text, ranges.flatMap((range) => {
+        const from = Math.max(range.from, run.start)
+        const to = Math.min(range.to, run.end)
+        return from < to ? [{ ...range, from: from - run.start, to: to - run.start }] : []
+      }))
+    }),
+    [runs, ranges],
+  )
+  // 代码块增强（契约 Q1-c 第 2 类）：内容变化后接线复制按钮与异步语法高亮。
+  useCodeEnhancements(bodyRef, [annotatedHtml])
   const resolvedGenerationTaskKey = generationTaskKey ?? `retry:${node.id}`
   const resolvedRetryTaskKey = retryTaskKey ?? `retry:${node.id}`
 
@@ -136,11 +152,7 @@ export function DocView({
                 data-canonical-text={run.text}
                 data-text-end={run.end}
                 data-text-start={run.start}
-                dangerouslySetInnerHTML={{ __html: renderAnnotatedHtml(run.text, ranges.flatMap((range) => {
-                  const from = Math.max(range.from, run.start)
-                  const to = Math.min(range.to, run.end)
-                  return from < to ? [{ ...range, from: from - run.start, to: to - run.start }] : []
-                })) }}
+                dangerouslySetInnerHTML={{ __html: annotatedHtml[index] ?? '' }}
                 key={`text-${index}`}
               />
             )

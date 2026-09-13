@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError } from '../api/client'
+import { ApiError, type ProviderSettingsView, type ProviderTestResult } from '../api/client'
 import { useApi } from '../api/context'
-import type { SettingsPatch, SettingsView } from '../api/types'
+import type { SettingsPatch } from '../api/types'
 
 const SETTINGS_REQUEST_TIMEOUT_MS = 10_000
+function defaultBaseUrl(provider: string): string {
+  return provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'
+}
+const TEST_ERROR_MESSAGES = {
+  'invalid-config': '请填写服务地址和模型名称。',
+  unreachable: '无法连接服务，请检查地址和网络。',
+  timeout: '连接超时，请稍后重试。',
+  auth: '认证失败，请检查 API 密钥。',
+  'not-found': '服务端点或模型不存在，请检查配置。',
+  'http-error': '服务返回错误，请稍后重试。',
+}
 
 class SettingsRequestTimeoutError extends Error {}
 
@@ -28,6 +39,7 @@ async function withTimeout<T>(
 export function SettingsPanel() {
   const api = useApi()
   const savingRef = useRef(false)
+  const testingRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
@@ -40,6 +52,9 @@ export function SettingsPanel() {
   const [apiKey, setApiKey] = useState('')
   const [vaultPath, setVaultPath] = useState('')
   const [picking, setPicking] = useState<'vault' | 'project' | null>(null)
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingsView | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null)
 
   useEffect(() => {
     let active = true
@@ -48,11 +63,12 @@ export function SettingsPanel() {
     void withTimeout((signal) => api.getSettings(signal))
       .then((settings) => {
         if (!active) return
+        setProviderSettings(settings)
         setHasApiKey(settings.hasApiKey)
         setProjectRoot(settings.projectRoot ?? '')
         setProvider(settings.provider)
         setModel(settings.model)
-        setBaseUrl(settings.baseUrl ?? '')
+        setBaseUrl(settings.baseUrl ?? defaultBaseUrl(settings.provider))
         setVaultPath(settings.vaultPath ?? '')
       })
       .catch((cause: unknown) => {
@@ -73,21 +89,23 @@ export function SettingsPanel() {
     setError(null)
     const patch: SettingsPatch = {
       projectRoot,
-      provider: 'codex',
-      model,
-      baseUrl,
+      provider: provider === 'anthropic' ? 'anthropic' : 'codex',
       vaultPath,
     }
+    // Saving unrelated settings must not pin an unchanged env/default value into the DB.
+    if (!providerSettings || model !== providerSettings.model) patch.model = model
+    if (!providerSettings || baseUrl !== (providerSettings.baseUrl ?? defaultBaseUrl(providerSettings.provider))) patch.baseUrl = baseUrl
     if (apiKey) patch.apiKey = apiKey
     try {
-      const settings: SettingsView = await withTimeout(
+      const settings = await withTimeout(
         (signal) => api.updateSettings(patch, signal),
       )
+      setProviderSettings(settings)
       setHasApiKey(settings.hasApiKey)
       setProjectRoot(settings.projectRoot ?? '')
       setProvider(settings.provider)
       setModel(settings.model)
-      setBaseUrl(settings.baseUrl ?? '')
+      setBaseUrl(settings.baseUrl ?? defaultBaseUrl(settings.provider))
       setVaultPath(settings.vaultPath ?? '')
       setApiKey('')
       const syncVault = (api as Partial<typeof api>).syncVault
@@ -106,6 +124,33 @@ export function SettingsPanel() {
       savingRef.current = false
       setBusy(false)
     }
+  }
+
+  async function testConnection(): Promise<void> {
+    if (testingRef.current || busy || provider !== providerSettings?.provider) return
+    testingRef.current = true
+    setTesting(true)
+    setTestResult(null)
+    try {
+      setTestResult(await withTimeout((signal) => api.testProvider({
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        ...(apiKey ? { apiKey } : {}),
+      }, signal)))
+    } catch (cause) {
+      setTestResult({ ok: false, code: cause instanceof SettingsRequestTimeoutError ? 'timeout' : 'unreachable' })
+    } finally {
+      testingRef.current = false
+      setTesting(false)
+    }
+  }
+
+  function sourceBadge(field: 'apiKey' | 'baseUrl' | 'model') {
+    const source = providerSettings?.sources?.[field]
+    if (!source || provider !== providerSettings?.provider) return null
+    const text = source === 'env' ? `来自环境变量 ${providerSettings?.sourceVars[field] ?? ''}`
+      : source === 'settings' ? '来自设置' : source === 'default' ? '默认值' : '未配置'
+    return <span className="settings-source">{text}</span>
   }
 
   async function pickDirectory(kind: 'vault' | 'project'): Promise<void> {
@@ -170,39 +215,63 @@ export function SettingsPanel() {
           </label>
           <label>
             <span>AI 服务商</span>
-            <select aria-label="AI 服务商" disabled={busy} onChange={() => setProvider('codex')} value="codex">
-              <option value="codex">codex</option>
+            <select aria-label="AI 服务商" disabled={busy || testing} onChange={(event) => { setProvider(event.target.value); setTestResult(null) }} value={provider === 'anthropic' ? 'anthropic' : 'codex'}>
+              <option value="codex">OpenAI 兼容 (codex)</option>
+              <option value="anthropic">Anthropic 兼容 (anthropic)</option>
             </select>
           </label>
-          {provider !== 'codex' && (
+          {provider !== 'codex' && provider !== 'anthropic' && (
             <p className="notice notice-info">当前服务商 "{provider}" 不受支持，保存后将使用 codex</p>
           )}
+          {provider !== providerSettings?.provider && (
+            <>
+              <p className="notice notice-info">切换服务商会清空已保存的服务地址/模型/密钥，环境变量不受影响</p>
+              <p className="settings-env-hint">保存服务商后将刷新配置来源，再测试连接。</p>
+            </>
+          )}
           <label>
-            <span>模型名称</span>
-            <input aria-label="模型名称" disabled={busy} onChange={(event) => setModel(event.target.value)} value={model} />
+            <span className="settings-field-label">模型名称{sourceBadge('model')}</span>
+            <input aria-label="模型名称" disabled={busy || testing} onChange={(event) => { setModel(event.target.value); setTestResult(null) }} value={model} />
+          </label>
+          {provider === providerSettings?.provider && providerSettings?.sourceVars?.model === 'ANTHROPIC_DEFAULT_OPUS_MODEL' && (
+            <p className="settings-env-hint">Claude CLI 模型档位映射，请确认模型名</p>
+          )}
+          <label>
+            <span className="settings-field-label">服务地址{sourceBadge('baseUrl')}</span>
+            <input aria-label="服务地址" disabled={busy || testing} onChange={(event) => { setBaseUrl(event.target.value); setTestResult(null) }} value={baseUrl} />
           </label>
           <label>
-            <span>服务地址</span>
-            <input aria-label="服务地址" disabled={busy} onChange={(event) => setBaseUrl(event.target.value)} value={baseUrl} />
-          </label>
-          <label>
-            <span>API 密钥</span>
+            <span className="settings-field-label">API 密钥{sourceBadge('apiKey')}</span>
             <input
               aria-label="API 密钥"
-              disabled={busy}
-              onChange={(event) => setApiKey(event.target.value)}
+              disabled={busy || testing}
+              onChange={(event) => { setApiKey(event.target.value); setTestResult(null) }}
               placeholder={hasApiKey ? '已设置（留空保持不变）' : '未设置'}
               type="password"
               value={apiKey}
             />
           </label>
+          {providerSettings?.sources && Object.values(providerSettings.sources).includes('env') && (
+            <p className="settings-env-hint">环境变量在本地服务启动时读取，修改后需重启服务</p>
+          )}
+          <div className="settings-test-connection">
+            <button aria-busy={testing} className="quiet-button" disabled={busy || testing || provider !== providerSettings?.provider} onClick={() => { void testConnection() }} type="button">
+              {testing ? '测试中…' : '测试连接'}
+            </button>
+            {testResult && (
+              <p className={`settings-test-result${testResult.ok ? ' is-success' : ''}`} role="status">
+                {testResult.ok ? `✓ 连接成功 · ${testResult.latencyMs}ms`
+                  : `✗ ${TEST_ERROR_MESSAGES[testResult.code] ?? '测试连接失败。'}${testResult.code === 'http-error' && testResult.status ? `（HTTP ${testResult.status}）` : ''}`}
+              </p>
+            )}
+          </div>
         </div>
       </details>
       <div className="settings-actions">
         <button
           aria-busy={busy}
           className="primary-button"
-          disabled={busy}
+          disabled={busy || testing}
           onClick={() => { void save() }}
           type="button"
         >

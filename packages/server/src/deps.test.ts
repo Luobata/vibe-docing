@@ -4,10 +4,19 @@ import { createDeps } from './deps'
 import { fixedClock } from './util/clock'
 
 describe('createDeps', () => {
+  it('accepts isolated provider environment and an injectable connection fetch', () => {
+    const providerFetch = async () => new Response('{}')
+    const deps = createDeps({ db: openMemoryDb(), env: { VIBE_LLM_MODEL: 'injected-model' }, providerFetch })
+    expect(deps.settings.getProviderConfig().model).toBe('injected-model')
+    expect(deps.providerFetch).toBe(providerFetch)
+    deps.db.close()
+  })
+
   it('wires repos, context engine, answer service, and settings', () => {
     const deps = createDeps({
       clock: fixedClock('2026-08-05T00:00:00.000Z'),
       db: openMemoryDb(),
+      env: {},
     })
     const { tree } = deps.trees.create('tree')
 

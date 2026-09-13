@@ -27,6 +27,7 @@ export interface AppDeps {
   merges: ReturnType<typeof createMergeRepo>
   nodes: ReturnType<typeof createNodeRepo>
   providerOverride?: Provider
+  providerFetch: typeof fetch
   segments: ReturnType<typeof createSegmentRepo>
   settings: ReturnType<typeof createSettingsRepo>
   share: ReturnType<typeof createShareService>
@@ -37,12 +38,12 @@ export interface AppDeps {
   vault: ReturnType<typeof createVaultService>
 }
 
-export function createDeps(options: { clock?: Clock; db: Db; vaultPath?: string }): AppDeps {
+export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string, string | undefined>; providerFetch?: typeof fetch; vaultPath?: string }): AppDeps {
   const clock = options.clock ?? systemClock
   const nodes = createNodeRepo(options.db, clock)
   const segments = createSegmentRepo(options.db)
   const versions = createVersionRepo(options.db, clock)
-  const settings = createSettingsRepo(options.db)
+  const settings = createSettingsRepo(options.db, options.env)
   const context = createContextEngine({ nodes, segments, settings, versions })
   const shares = createShareRepo(options.db, clock)
   const visualArtifacts = createVisualArtifactRepo(options.db, clock)
@@ -68,6 +69,7 @@ export function createDeps(options: { clock?: Clock; db: Db; vaultPath?: string 
     segments,
     settings,
     share: createShareService(options.db, shares, visualArtifacts),
+    providerFetch: options.providerFetch ?? fetch,
     shares,
     trees: createTreeRepo(options.db, clock),
     versions,

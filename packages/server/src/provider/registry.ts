@@ -1,5 +1,6 @@
 import type { createSettingsRepo } from '../repo/settings-repo'
 import { createCodexProvider } from './codex-provider'
+import { createAnthropicProvider } from './anthropic-provider'
 import type { Provider } from './types'
 
 type SettingsRepo = ReturnType<typeof createSettingsRepo>
@@ -18,6 +19,7 @@ export function resolveProvider(
   if (override) return override
 
   const config = deps.settings.getProviderConfig()
+  if (config.provider === 'anthropic') return createAnthropicProvider(config)
   if (config.provider !== 'codex') {
     throw new ProviderConfigError(`Unsupported provider: ${config.provider}`)
   }

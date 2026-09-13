@@ -6,6 +6,7 @@ import {
 import { openMemoryDb } from './db/connection'
 import { createDeps, type AppDeps } from './deps'
 import { registerTreeRoutes } from './routes/trees'
+import { registerFolderRoutes } from './routes/folders'
 import { registerForkRoutes } from './routes/fork'
 import { registerAnswerRoutes } from './routes/answer'
 import { registerNodeEditRoutes } from './routes/node-edit'
@@ -33,6 +34,7 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   app.decorate('deps', deps ?? createDeps({ db: openMemoryDb() }))
   app.get('/health', async () => ({ ok: true }))
   registerTreeRoutes(app)
+  registerFolderRoutes(app)
   registerForkRoutes(app)
   registerAnswerRoutes(app)
   registerNodeEditRoutes(app)

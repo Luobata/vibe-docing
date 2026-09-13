@@ -125,6 +125,40 @@ describe('DocView', () => {
     expect(onAnchorClick).not.toHaveBeenCalled()
   })
 
+  it('enhances fenced code blocks: copy button injected, highlight applied async', async () => {
+    const codeNode: NodeRow = {
+      ...node(),
+      ai_response: JSON.stringify({
+        content: [{ content: [{ text: '```ts\nconst enhanced = true\n```', type: 'text' }], type: 'paragraph' }],
+        type: 'doc',
+      }),
+    }
+    const { container } = render(<DocView annotations={[]} node={codeNode} onRetry={() => {}} onSelect={() => {}} />)
+    const code = container.querySelector('pre > code.language-ts') as HTMLElement
+    expect(code).not.toBeNull()
+    // 复制按钮由 layout effect 同步注入
+    expect(container.querySelector('pre > button[data-code-copy]')).not.toBeNull()
+    // 异步高亮落位，文本保持原始源码
+    await vi.waitFor(() => expect(code.innerHTML).toContain('<span'), { timeout: 5000 })
+    expect(code.textContent).toBe('const enhanced = true\n')
+  })
+
+  it('copies the raw source through the component-level copy button', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const codeNode: NodeRow = {
+      ...node(),
+      ai_response: JSON.stringify({
+        content: [{ content: [{ text: '```python\ndef area(r):\n    return 3.14 * r\n```', type: 'text' }], type: 'paragraph' }],
+        type: 'doc',
+      }),
+    }
+    const { container } = render(<DocView annotations={[]} node={codeNode} onRetry={() => {}} onSelect={() => {}} />)
+    fireEvent.click(container.querySelector('button[data-code-copy]') as HTMLElement)
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+    expect(writeText).toHaveBeenCalledWith('def area(r):\n    return 3.14 * r\n')
+  })
+
   it('renders a persisted visual reference and exposes its whole-block note anchor', () => {
     visualRuntimeStore.dispatch({
       type: 'visual_ready', placeholderId: 'p', artifactId: 'visual-1', revision: 1,

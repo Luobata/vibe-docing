@@ -3,8 +3,25 @@ import MarkdownIt from 'markdown-it'
 import type { AnnotationRange } from './highlight'
 
 // html:false → raw inline/block HTML in the source is escaped, not passed
-// through (blocks the obvious XSS vector). linkify off to avoid surprise links.
-const md = new MarkdownIt({ breaks: true, html: false, linkify: false })
+// through (blocks the obvious XSS vector). linkify on so bare URLs the model
+// emits become clickable; the href allowlist below keeps pseudo-protocols out.
+const md = new MarkdownIt({ breaks: true, html: false, linkify: true })
+
+// Protocol allowlist: only http/https/mailto hrefs may become links. Anything
+// else — javascript:, vbscript:, data:, file: — renders as plain text.
+md.validateLink = (url: string) => /^(https?:|mailto:)/i.test(url.trim())
+
+// External links open in a new tab. mailto: stays in-tab (target would just
+// open a throwaway blank tab in some browsers).
+const defaultLinkOpen = md.renderer.rules.link_open
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const href = tokens[idx].attrGet('href') ?? ''
+  if (/^https?:/i.test(href)) {
+    tokens[idx].attrSet('target', '_blank')
+    tokens[idx].attrSet('rel', 'noopener noreferrer')
+  }
+  return defaultLinkOpen?.(tokens, idx, options, env, self) ?? self.renderToken(tokens, idx, options)
+}
 
 // Obsidian-style internal links are not CommonMark, but keeping their source
 // syntax and reading-view label makes an imported Vault feel native. Navigation
