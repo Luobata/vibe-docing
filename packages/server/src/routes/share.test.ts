@@ -198,3 +198,53 @@ describe('document sharing', () => {
     await app.close()
   })
 })
+
+describe('synthesis sharing', () => {
+  it('keeps node and synthesis tokens independent and publishes only the selected immutable synthesis in all formats', async () => {
+    const app = buildApp()
+    try {
+      const { tree, rootNode } = app.deps.trees.create('Synthesis project')
+      app.deps.nodes.updateContent(rootNode.id, { documentContent: 'PRIVATE_ROOT_BODY', contentSchemaVersion: 2 })
+      const child = app.deps.nodes.create({ treeId: tree.id, parentId: rootNode.id, userInput: 'PRIVATE_CHILD' })
+      app.deps.nodes.updateContent(child.id, { documentContent: 'PRIVATE_CHILD_BODY', contentSchemaVersion: 2 })
+      const first = app.deps.syntheses.create(tree.id, 'digest-1', [])
+      const contentMd = `# Public synthesis\n\nClaim [^1]\n\n\`\`\`txt\nalpha\n\nbeta\n\ngamma\n\ndelta\n\`\`\`\n\n[^1]: ${rootNode.id} · Root · Project / Root`
+      app.deps.syntheses.finish(first.id, { status: 'done', contentMd })
+      const nodeShare = (await app.inject({ method: 'POST', url: `/api/nodes/${rootNode.id}/share` })).json().share
+      const url = `/api/syntheses/${first.id}/share`
+      const share = (await app.inject({ method: 'POST', url })).json().share
+      expect(share).toMatchObject({ synthesisId: first.id, nodeId: rootNode.id })
+      expect(share.url).not.toBe(nodeShare.url)
+      expect((await app.inject({ method: 'POST', url })).json().share).toEqual(share)
+      expect((await app.inject({ method: 'GET', url })).json().share).toEqual(share)
+      const second = app.deps.syntheses.create(tree.id, 'digest-2', [])
+      expect((await app.inject({ method: 'POST', url: `/api/syntheses/${second.id}/share` })).statusCode).toBe(404)
+      app.deps.syntheses.finish(second.id, { status: 'done', contentMd: '# DIFFERENT_NEW_SYNTHESIS' })
+      const secondShare = (await app.inject({ method: 'POST', url: `/api/syntheses/${second.id}/share` })).json().share
+      for (const publicUrl of [share.url, share.markdownUrl, share.jsonUrl]) {
+        const response = await app.inject({ method: 'GET', url: publicUrl })
+        expect(response.statusCode).toBe(200)
+        expect(response.body).toContain('Public synthesis')
+        expect(response.body).toContain(rootNode.id)
+        expect(response.body).not.toContain('PRIVATE_')
+        expect(response.body).not.toContain('DIFFERENT_NEW_SYNTHESIS')
+      }
+      const html = (await app.inject({ method: 'GET', url: share.url })).body
+      expect(html).toContain('<code class="language-txt">alpha\nbeta\ngamma\ndelta\n</code>')
+      expect(html).toContain(`<li>[^1] — ${rootNode.id}`)
+      const json = (await app.inject({ method: 'GET', url: share.jsonUrl })).json()
+      expect(json.schemaVersion).toBe(1)
+      expect(json.nodes).toHaveLength(1)
+      expect(json.nodes[0].inputText).toBe('')
+      expect((await app.inject({ method: 'DELETE', url: `/api/nodes/${rootNode.id}/share` })).statusCode).toBe(200)
+      expect((await app.inject({ method: 'GET', url: share.url })).statusCode).toBe(200)
+      const restoredNode = (await app.inject({ method: 'POST', url: `/api/nodes/${rootNode.id}/share` })).json().share
+      expect((await app.inject({ method: 'DELETE', url })).statusCode).toBe(200)
+      expect((await app.inject({ method: 'GET', url: share.url })).statusCode).toBe(404)
+      expect((await app.inject({ method: 'GET', url: restoredNode.url })).statusCode).toBe(200)
+      expect((await app.inject({ method: 'GET', url: secondShare.url })).statusCode).toBe(200)
+      app.deps.nodes.softDelete(rootNode.id)
+      expect((await app.inject({ method: 'GET', url: secondShare.url })).statusCode).toBe(404)
+    } finally { await app.close(); app.deps.db.close() }
+  })
+})

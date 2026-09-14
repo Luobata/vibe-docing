@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   file_kind TEXT,
   content_hash TEXT,
   tags_json TEXT,
+  verdict TEXT CHECK (verdict IN ('adopted', 'rejected', 'superseded')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -139,6 +140,7 @@ CREATE TABLE IF NOT EXISTS document_shares (
   id TEXT PRIMARY KEY,
   tree_id TEXT NOT NULL REFERENCES trees(id),
   node_id TEXT NOT NULL REFERENCES nodes(id),
+  synthesis_id TEXT REFERENCES syntheses(id),
   token_hash TEXT NOT NULL,
   token_hint TEXT NOT NULL,
   is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -148,3 +150,42 @@ CREATE TABLE IF NOT EXISTS document_shares (
 );
 
 CREATE INDEX IF NOT EXISTS idx_document_shares_tree ON document_shares(tree_id);
+
+CREATE TABLE IF NOT EXISTS syntheses (
+  id TEXT PRIMARY KEY,
+  tree_id TEXT NOT NULL REFERENCES trees(id),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed', 'cancelled')),
+  content_md TEXT,
+  sections_json TEXT NOT NULL DEFAULT '[]',
+  footnotes_json TEXT NOT NULL DEFAULT '[]',
+  node_results_json TEXT NOT NULL DEFAULT '{}',
+  input_digest TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_syntheses_tree ON syntheses(tree_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_syntheses_active_tree ON syntheses(tree_id) WHERE status IN ('queued', 'running');
+
+CREATE TABLE IF NOT EXISTS open_questions (
+  id TEXT PRIMARY KEY,
+  tree_id TEXT NOT NULL REFERENCES trees(id),
+  node_id TEXT REFERENCES nodes(id),
+  question TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+  source TEXT NOT NULL CHECK (source IN ('ai', 'manual')),
+  resolved_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(tree_id, question)
+);
+
+CREATE TABLE IF NOT EXISTS retrospectives (
+  id TEXT PRIMARY KEY,
+  tree_id TEXT NOT NULL REFERENCES trees(id),
+  input_digest TEXT NOT NULL,
+  content_md TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(tree_id, input_digest)
+);

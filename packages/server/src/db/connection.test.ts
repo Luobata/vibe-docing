@@ -225,3 +225,48 @@ describe('db schema', () => {
     expect(indexes.map((index) => index.name)).not.toContain('idx_document_shares_active_tree')
   })
 })
+
+describe('synthesis migrations', () => {
+  it('upgrades legacy share/verdict columns, recovers orphan tasks and retains cached nodes across a second migration', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vibe-synthesis-migrate-'))
+    temporaryDirectories.push(directory)
+    const path = join(directory, 'legacy.db')
+    const legacy = openDb(path)
+    legacy.exec(`DROP INDEX idx_document_shares_active_synthesis;
+      DROP INDEX idx_document_shares_active_node;
+      ALTER TABLE document_shares DROP COLUMN synthesis_id;
+      ALTER TABLE nodes DROP COLUMN verdict;
+      DROP TABLE open_questions;
+      DROP TABLE retrospectives;
+      DROP TABLE syntheses;
+      INSERT INTO trees (id, title, created_at, updated_at) VALUES ('t', 'Retain', 'then', 'then');
+      INSERT INTO nodes (id, tree_id, created_at, updated_at) VALUES ('n', 't', 'then', 'then');
+      INSERT INTO document_shares (id, tree_id, node_id, token_hash, token_hint, is_enabled, created_at, updated_at)
+        VALUES ('share', 't', 'n', 'hash', 'hint', 1, 'then', 'then');`)
+    const beforeShare = legacy.prepare('SELECT * FROM document_shares').get()
+    legacy.close()
+    const upgraded = openDb(path)
+    expect(upgraded.prepare('SELECT verdict FROM nodes').get()).toEqual({ verdict: null })
+    expect(upgraded.prepare('SELECT * FROM document_shares').get()).toEqual({ ...beforeShare!, synthesis_id: null })
+    upgraded.exec(`UPDATE nodes SET verdict = 'adopted';
+      INSERT INTO syntheses (id, tree_id, status, input_digest, node_results_json, created_at, updated_at)
+        VALUES ('task', 't', 'running', 'digest', '{"n":{"status":"done","content":"keep"}}', 'then', 'then');
+      INSERT INTO open_questions (id, tree_id, question, status, source, created_at, updated_at)
+        VALUES ('q', 't', 'Keep?', 'resolved', 'manual', 'then', 'then');
+      INSERT INTO retrospectives (id, tree_id, input_digest, content_md, created_at)
+        VALUES ('r', 't', 'digest', 'Retain retrospective', 'then');`)
+    upgraded.close()
+    const recovered = openDb(path)
+    const task = recovered.prepare('SELECT * FROM syntheses').get()
+    expect(task).toMatchObject({ status: 'failed', node_results_json: '{"n":{"status":"done","content":"keep"}}', error: expect.stringContaining('重启') })
+    expect(recovered.prepare('SELECT verdict FROM nodes').get()).toEqual({ verdict: 'adopted' })
+    recovered.close()
+    const reopened = openDb(path)
+    openDatabases.push(reopened)
+    expect(reopened.prepare('SELECT * FROM syntheses').get()).toEqual(task)
+    expect(reopened.prepare('SELECT question, status FROM open_questions').get()).toEqual({ question: 'Keep?', status: 'resolved' })
+    expect(reopened.prepare('SELECT content_md FROM retrospectives').get()).toEqual({ content_md: 'Retain retrospective' })
+    expect(reopened.pragma('integrity_check')).toEqual([{ integrity_check: 'ok' }])
+    expect(reopened.pragma('foreign_key_check')).toEqual([])
+  })
+})

@@ -1,7 +1,6 @@
 import type { DecoratedApp } from '../app'
-import { documentContentOf, legacyDocumentToMarkdown } from '@vibe/shared'
+import { documentContentOf, legacyDocumentToMarkdown, lineDiff } from '@vibe/shared'
 import { prosemirrorToPlainText } from '../context/prosemirror'
-import { lineDiff } from '../service/diff'
 
 function versionNumber(value: string): number | undefined {
   return /^[1-9]\d*$/.test(value) ? Number(value) : undefined

@@ -20,6 +20,7 @@ import {
 export interface ShareDocument {
   tree: TreeRow
   root: ShareNode
+  synthesis?: { id: string; contentMd: string }
   shareCreatedAt?: string
   shareUpdatedAt?: string
   visuals?: ReadonlyMap<string, VisualArtifact>
@@ -103,6 +104,7 @@ function label(node: NodeRow): string {
 }
 
 function shareTitle(document: ShareDocument): string {
+  if (document.synthesis) return `${document.tree.title} · 成文`
   return document.root.row.id === document.tree.root_node_id
     ? document.tree.title
     : `${document.tree.title} · ${rawLabel(document.root.row)}`
@@ -118,6 +120,10 @@ function body(document: ShareDocument, node: NodeRow): string {
 }
 
 export function renderShareMarkdown(document: ShareDocument): string {
+  if (document.synthesis) {
+    const source = document.synthesis.contentMd.replace(/^(\[\^\d+\]):\s*(.*)$/gm, '- $1 — $2')
+    return `${normalizeMarkdown(source.trim())}\n`
+  }
   const title = shareTitle(document)
   const scope = document.root.row.id === document.tree.root_node_id ? '整树' : '节点级'
   const out = [
@@ -166,6 +172,14 @@ export function renderShareMarkdown(document: ShareDocument): string {
 }
 
 export function buildShareJson(document: ShareDocument): PublicShareSnapshot {
+  if (document.synthesis) return buildPublicShareSnapshot({
+    share: { scope: 'node', title: shareTitle(document),
+      createdAt: document.shareCreatedAt ?? document.root.row.created_at,
+      updatedAt: document.shareUpdatedAt ?? document.root.row.updated_at },
+    nodes: [{ index: 0, depth: 0, parentIndex: null, title: shareTitle(document), inputText: '',
+      responseText: renderShareMarkdown(document).trim(), visualRefs: [], status: 'complete' }],
+    relations: { derivations: [] }, annotations: [], artifacts: [],
+  })
   const nodes: PublicShareSnapshot['nodes'] = []
   const nodeIndexById = new Map<string, number>()
   const artifacts: VisualScene[] = []
@@ -333,6 +347,7 @@ function renderShareMapSvg(document: ShareDocument): string {
 }
 
 function shareMapSection(document: ShareDocument): string {
+  if (document.synthesis) return ''
   const count = (() => {
     let total = 0
     const countNodes = (node: ShareNode): void => { total += 1; node.children.forEach(countNodes) }

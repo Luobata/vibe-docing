@@ -13,6 +13,9 @@ import { createVisualArtifactRepo } from './repo/visual-artifact-repo'
 import { createAnswerService } from './service/answer-service'
 import { createShareService } from './service/share-service'
 import { createVaultService } from './service/vault-service'
+import { createSynthesisRepo } from './repo/synthesis-repo'
+import { createOpenQuestionsRepo } from './repo/open-questions-repo'
+import { createSynthesisService } from './service/synthesis-service'
 import { createDiscussionRepo } from './repo/discussion-repo'
 import { createDiscussionService } from './service/discussion-service'
 import { systemClock, type Clock } from './util/clock'
@@ -28,6 +31,9 @@ export interface AppDeps {
   db: Db
   discussionMessages: ReturnType<typeof createDiscussionRepo>
   discussion: ReturnType<typeof createDiscussionService>
+  syntheses: ReturnType<typeof createSynthesisRepo>
+  openQuestions: ReturnType<typeof createOpenQuestionsRepo>
+  synthesis: ReturnType<typeof createSynthesisService>
   merges: ReturnType<typeof createMergeRepo>
   nodes: ReturnType<typeof createNodeRepo>
   providerOverride?: Provider
@@ -64,6 +70,10 @@ export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string
   const annotations = createAnnotationRepo(options.db, clock)
   const merges = createMergeRepo(options.db, clock)
   const discussionMessages = createDiscussionRepo(options.db, clock)
+  const trees = createTreeRepo(options.db, clock)
+  const syntheses = createSynthesisRepo(options.db, clock)
+  const openQuestions = createOpenQuestionsRepo(options.db, clock)
+  const synthesis = createSynthesisService({ db: options.db, trees, nodes, discussionMessages, merges, settings, syntheses, openQuestions })
   const discussion = createDiscussionService({ db: options.db, nodes, vault, discussionMessages, merges, settings, annotations, versions })
 
   return {
@@ -75,13 +85,16 @@ export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string
     discussionMessages,
     discussion,
     merges,
+    syntheses,
+    openQuestions,
+    synthesis,
     nodes,
     segments,
     settings,
     share: createShareService(options.db, shares, visualArtifacts),
     providerFetch: options.providerFetch ?? fetch,
     shares,
-    trees: createTreeRepo(options.db, clock),
+    trees,
     versions,
     visualArtifacts,
     vault,

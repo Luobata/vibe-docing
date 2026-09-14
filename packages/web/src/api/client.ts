@@ -5,6 +5,7 @@ import type {
   CorrectDraft,
   CorrectionMode,
   DocumentShareResponse,
+  DiffLine,
   DocumentAnchorPatch,
   DocumentContentView,
   MergeRow,
@@ -17,7 +18,16 @@ import type {
   VisualStreamEvent,
 } from '@vibe/shared'
 import { visualRuntimeStore } from '../visual/visual-stream-state'
-import type { RouteConvergence, SettingsPatch, SettingsView } from './types'
+import type { Decisions, OpenQuestion, Retrospective, RouteConvergence, SettingsPatch, SettingsView, Synthesis, SynthesisProgress } from './types'
+
+export interface SynthesisStreamHandlers {
+  onStarted(synthesis: Synthesis, total: number): void
+  onProgress(progress: SynthesisProgress): void
+  onPhase(): void
+  onDone(synthesis: Synthesis): void
+  onError(message: string, synthesis?: Synthesis): void
+  onCancelled(synthesis?: Synthesis): void
+}
 
 export class ApiError extends Error {
   constructor(
@@ -213,7 +223,82 @@ export function createApi(options?: {
     }
   }
 
+  async function synthesisStream(treeId: string, handlers: SynthesisStreamHandlers, signal?: AbortSignal): Promise<void> {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    let watchdog: ReturnType<typeof setInterval> | undefined
+    let terminal = false
+    const cancel = () => { void reader?.cancel(signal?.reason).catch(() => {}) }
+    const frame = (source: string) => {
+      const data = source.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n')
+      if (!data || terminal) return
+      let event: Record<string, unknown>
+      try { event = JSON.parse(data) } catch { terminal = true; handlers.onError('成文进度数据无效，请重试'); return }
+      if (event.type === 'started' && event.synthesis) handlers.onStarted(event.synthesis as Synthesis, Number(event.total))
+      else if (event.type === 'progress') handlers.onProgress(event as unknown as SynthesisProgress)
+      else if (event.type === 'phase') handlers.onPhase()
+      else if (event.type === 'done' && event.synthesis) { terminal = true; handlers.onDone(event.synthesis as Synthesis) }
+      else if (event.type === 'cancelled') { terminal = true; handlers.onCancelled(event.synthesis as Synthesis | undefined) }
+      else if (event.type === 'error') { terminal = true; handlers.onError(typeof event.message === 'string' ? event.message : '成文失败，请重试', event.synthesis as Synthesis | undefined) }
+      // Ping frames keep the connection alive without changing visible progress.
+    }
+    try {
+      signal?.throwIfAborted()
+      const response = await fetchImpl(`${base}/trees/${treeId}/synthesize`, {
+        method: 'POST', body: '{}', headers: { 'content-type': 'application/json' }, signal,
+      })
+      if (!response.ok || !response.body) {
+        const raw = await response.text()
+        let payload: unknown = raw
+        try { payload = JSON.parse(raw) } catch {}
+        throw new ApiError(response.status, payload)
+      }
+      reader = response.body.getReader()
+      signal?.addEventListener('abort', cancel, { once: true })
+      if (signal?.aborted) cancel()
+      let lastActivityAt = Date.now()
+      watchdog = setInterval(() => { if (Date.now() - lastActivityAt > 45_000) cancel() }, 5_000)
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for (;;) {
+        signal?.throwIfAborted()
+        const { done, value } = await reader.read()
+        signal?.throwIfAborted()
+        if (value?.byteLength) lastActivityAt = Date.now()
+        buffer += decoder.decode(value, { stream: !done })
+        const frames = buffer.split(/\r?\n\r?\n/)
+        buffer = frames.pop() ?? ''
+        for (const entry of frames) frame(entry)
+        if (done || terminal) break
+      }
+      signal?.throwIfAborted()
+      if (buffer.trim()) frame(buffer)
+      if (!terminal) handlers.onError('连接已中断，刷新状态后可重新成文')
+    } catch (error) {
+      if (isAbortError(error, signal)) { if (!terminal) handlers.onCancelled(); return }
+      throw error
+    } finally {
+      if (watchdog !== undefined) clearInterval(watchdog)
+      signal?.removeEventListener('abort', cancel)
+      if (reader) { await reader.cancel().catch(() => {}); reader.releaseLock() }
+    }
+  }
+
   return {
+    synthesize: (treeId: string, handlers: SynthesisStreamHandlers, signal?: AbortSignal) => synthesisStream(treeId, handlers, signal),
+    listSyntheses: (treeId: string) => json<{ syntheses: Synthesis[] }>(`/trees/${treeId}/syntheses`),
+    getSynthesis: (id: string) => json<{ synthesis: Synthesis }>(`/syntheses/${id}`),
+    cancelSynthesis: (id: string) => json<{ synthesis: Synthesis }>(`/syntheses/${id}/cancel`, { method: 'POST', body: '{}' }),
+    diffSyntheses: (id: string, previousId: string) => json<{ lines: DiffLine[] }>(`/syntheses/${id}/diff/${previousId}`),
+    getSynthesisShare: (id: string) => json<DocumentShareResponse>(`/syntheses/${id}/share`),
+    createSynthesisShare: (id: string) => json<DocumentShareResponse>(`/syntheses/${id}/share`, { method: 'POST', body: '{}' }),
+    revokeSynthesisShare: (id: string) => json<{ ok: true }>(`/syntheses/${id}/share`, { method: 'DELETE' }),
+    listOpenQuestions: (treeId: string) => json<{ questions: OpenQuestion[] }>(`/trees/${treeId}/open-questions`),
+    extractOpenQuestions: (treeId: string, signal?: AbortSignal) => json<{ questions: OpenQuestion[] }>(`/trees/${treeId}/open-questions/extract`, { method: 'POST', body: '{}', signal }),
+    updateOpenQuestion: (id: string, patch: { question?: string; status?: 'open' | 'resolved' }) => json<{ question: OpenQuestion }>(`/open-questions/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    getRetrospective: (treeId: string) => json<{ retrospective: Retrospective | null }>(`/trees/${treeId}/retrospective`),
+    createRetrospective: (treeId: string, signal?: AbortSignal) => json<{ retrospective: Retrospective; cached: boolean }>(`/trees/${treeId}/retrospective`, { method: 'POST', body: '{}', signal }),
+    listDecisions: (treeId: string) => json<Decisions>(`/trees/${treeId}/decisions`),
+    setNodeVerdict: (nodeId: string, verdict: NonNullable<NodeRow['verdict']> | null) => json<{ node: NodeRow }>(`/nodes/${nodeId}/verdict`, { method: 'PATCH', body: JSON.stringify({ verdict }) }),
     listDiscussion: (nodeId: string) => json<{ messages: DiscussionMessage[] }>(`/nodes/${nodeId}/discussion`),
     sendDiscussion: (nodeId: string, userInput: string, handlers: DiscussionStreamHandlers, signal?: AbortSignal) =>
       discussionStream(`/nodes/${nodeId}/discussion`, { userInput }, handlers, signal),

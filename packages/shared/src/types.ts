@@ -44,6 +44,7 @@ export interface TreeRow {
 }
 
 export interface NodeRow {
+  verdict?: 'adopted' | 'rejected' | 'superseded' | null
   id: string
   tree_id: string
   parent_id: string | null
@@ -225,6 +226,7 @@ export interface VisualArtifactRow {
 
 /** Management API view. Tokens and hashes never cross this boundary. */
 export interface DocumentShareView {
+  synthesisId?: string
   enabled: true
   nodeId: string
   url: string

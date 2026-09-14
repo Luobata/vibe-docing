@@ -30,6 +30,7 @@ import { ChatBox } from './ChatBox'
 import { CorrectiveMergeButton } from './CorrectiveMergeButton'
 import { DocView } from './DocView'
 import { DiscussionStrip } from './DiscussionStrip'
+import { SynthesisPanel } from './SynthesisPanel'
 import { Icon } from './Icon'
 import { DocumentEditor, type DocumentEditorHandle } from '../editor/DocumentEditor'
 import { MergedConclusions } from './MergedConclusions'
@@ -983,6 +984,7 @@ export function MainDoc() {
           <MergedConclusions segments={segments} />
         </section>
         <DiscussionStrip key={node.id} node={node} onSaved={upsertNode} />
+        <SynthesisPanel key={node.tree_id} node={node} />
         {transcript.map((turn, index) => {
           const turnNode = nodesById[turn.id] ?? turn.answer
           const turnTaskKey = taskKeyByTarget[turn.id]

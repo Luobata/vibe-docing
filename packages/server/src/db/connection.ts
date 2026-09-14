@@ -126,6 +126,14 @@ function migrate(db: Db): void {
 
   migrateMerges(db)
 
+  if (!nodeColumns.some((column) => column.name === 'verdict')) {
+    db.exec("ALTER TABLE nodes ADD COLUMN verdict TEXT CHECK (verdict IN ('adopted', 'rejected', 'superseded'))")
+  }
+  // Only database startup recovers orphaned work; GET must not fail a live request.
+  const recoveredAt = new Date().toISOString()
+  db.prepare(`UPDATE syntheses SET status = 'failed', error = ?, updated_at = ?, finished_at = ?
+    WHERE status IN ('queued', 'running')`).run('服务已重启，请重新成文；已完成的节点可复用', recoveredAt, recoveredAt)
+
   // Kept here as well as schema.sql so an older database upgrades safely.
   db.exec(`
     CREATE TABLE IF NOT EXISTS document_shares (
@@ -146,14 +154,20 @@ function migrate(db: Db): void {
   if (!shareColumns.some((column) => column.name === 'node_id')) {
     db.exec('ALTER TABLE document_shares ADD COLUMN node_id TEXT REFERENCES nodes(id)')
   }
+  if (!shareColumns.some((column) => column.name === 'synthesis_id')) {
+    db.exec('ALTER TABLE document_shares ADD COLUMN synthesis_id TEXT REFERENCES syntheses(id)')
+  }
   db.exec(`
     UPDATE document_shares
     SET node_id = (SELECT root_node_id FROM trees WHERE trees.id = document_shares.tree_id)
     WHERE node_id IS NULL;
     DROP INDEX IF EXISTS idx_document_shares_active_tree;
+    DROP INDEX IF EXISTS idx_document_shares_active_node;
     CREATE INDEX IF NOT EXISTS idx_document_shares_node ON document_shares(node_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_node
-      ON document_shares(node_id) WHERE is_enabled = 1;
+      ON document_shares(node_id) WHERE is_enabled = 1 AND synthesis_id IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_document_shares_active_synthesis
+      ON document_shares(synthesis_id) WHERE is_enabled = 1 AND synthesis_id IS NOT NULL;
   `)
 }
 

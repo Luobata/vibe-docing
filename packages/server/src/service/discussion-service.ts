@@ -32,7 +32,7 @@ type DiscussionDeps = Pick<AppDeps, 'db' | 'nodes' | 'vault' | 'discussionMessag
 type SubscribeToActivity = (refresh: () => void) => () => void
 
 /** SSE writes keep each step alive; non-SSE calls retain the text idle deadline. */
-async function streamText(provider: Provider, messages: ChatMessage[], parent: AbortSignal | undefined, onChunk: (text: string) => void, subscribeToActivity?: SubscribeToActivity): Promise<string> {
+export async function streamText(provider: Provider, messages: ChatMessage[], parent: AbortSignal | undefined, onChunk: (text: string) => void, subscribeToActivity?: SubscribeToActivity, timeoutMs = 45_000): Promise<string> {
   parent?.throwIfAborted()
   const controller = new AbortController()
   const cancel = () => controller.abort(parent?.reason)
@@ -41,8 +41,8 @@ async function streamText(provider: Provider, messages: ChatMessage[], parent: A
   const reset = () => {
     clearTimeout(timeout)
     timeout = setTimeout(() => controller.abort(new Error(subscribeToActivity
-      ? '讨论连接超过 45 秒无法写入，请重试'
-      : '讨论生成超过 45 秒没有响应，请重试')), 45_000)
+      ? `讨论连接超过 ${timeoutMs / 1000} 秒无法写入，请重试`
+      : `讨论生成超过 ${timeoutMs / 1000} 秒没有响应，请重试`)), timeoutMs)
   }
   const interrupted = new Promise<never>((_resolve, reject) => {
     controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })
@@ -104,7 +104,7 @@ export function createDiscussionService(deps: DiscussionDeps) {
           .split('\n').find((line) => line.trim()) ?? ''
         entries.push({
           id: current.id,
-          text: `${title}：${firstLine}${merged.has(current.id) ? ' [已合并]' : ''}`,
+          text: `${title}：${firstLine}${merged.has(current.id) ? ' [已合并]' : ''}${current.verdict ? ` ${{ adopted: '[已采纳]', rejected: '[已否决]', superseded: '[已替代]' }[current.verdict]}` : ''}`,
           distance: path.length - index,
           updatedAt: current.updated_at,
         })

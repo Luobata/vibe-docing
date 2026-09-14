@@ -11,6 +11,7 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
   const view = (row: ShareRow, token = tokenForShare(row.id)): DocumentShareView => ({
     enabled: true,
     nodeId: row.node_id,
+    ...(row.synthesis_id ? { synthesisId: row.synthesis_id } : {}),
     url: `/share/${token}`,
     markdownUrl: `/share/${token}.md`,
     jsonUrl: `/share/${token}.json`,
@@ -36,6 +37,14 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
     if (!tree?.root_node_id) return undefined
     const rows = db.prepare(`SELECT * FROM nodes WHERE tree_id = ? AND is_deleted = 0
       ORDER BY sort_order ASC, id ASC`).all(tree.id) as NodeRow[]
+    if (share.synthesis_id) {
+      const synthesis = db.prepare("SELECT id, content_md FROM syntheses WHERE id = ? AND tree_id = ? AND status = 'done'")
+        .get(share.synthesis_id, tree.id) as { id: string; content_md: string } | undefined
+      const root = rows.find((row) => row.id === share.node_id)
+      if (!synthesis || !root) return undefined
+      return { tree, root: { row: root, children: [] }, synthesis: { id: synthesis.id, contentMd: synthesis.content_md },
+        shareCreatedAt: share.created_at, shareUpdatedAt: share.updated_at }
+    }
     const byParent = new Map<string | null, NodeRow[]>()
     for (const row of rows) {
       const list = byParent.get(row.parent_id) ?? []
@@ -86,5 +95,13 @@ export function createShareService(db: Db, shares: ShareRepo, visualArtifacts: V
     return { tree, root: assembledRoot, visuals, annotations, shareCreatedAt: share.created_at, shareUpdatedAt: share.updated_at }
   }
 
-  return { create, documentForToken, get, revoke: shares.revoke }
+  function getSynthesis(synthesisId: string): DocumentShareView | null {
+    const row = shares.getActiveForSynthesis(synthesisId)
+    return row ? view(row) : null
+  }
+  function createSynthesis(treeId: string, nodeId: string, synthesisId: string): DocumentShareView {
+    const result = shares.createActiveForSynthesis(treeId, nodeId, synthesisId)
+    return view(result.row, result.token)
+  }
+  return { create, documentForToken, get, revoke: shares.revoke, getSynthesis, createSynthesis, revokeSynthesis: shares.revokeSynthesis }
 }

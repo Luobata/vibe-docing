@@ -24,6 +24,7 @@ import { registerVisualArtifactRoutes } from './routes/visual-artifacts'
 import { registerDocumentContentRoutes } from './routes/document-content'
 import { registerVaultRoutes } from './routes/vault'
 import { registerSystemRoutes } from './routes/system'
+import { registerSynthesisRoutes } from './routes/synthesis'
 import { registerDiscussionRoutes } from './routes/discussion'
 
 export type DecoratedApp = AppInstance & { deps: AppDeps }
@@ -39,6 +40,7 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerForkRoutes(app)
   registerAnswerRoutes(app)
   registerDiscussionRoutes(app)
+  registerSynthesisRoutes(app)
   registerNodeEditRoutes(app)
   registerDocumentContentRoutes(app)
   registerVaultRoutes(app)

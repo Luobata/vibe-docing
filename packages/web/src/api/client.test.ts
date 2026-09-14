@@ -320,3 +320,126 @@ describe('api client', () => {
     })
   })
 })
+
+describe('synthesis API client', () => {
+  const synthesis = { id: 's1', treeId: 't1', status: 'done', contentMd: '## 背景\n正文', sections: [], footnotes: [], nodeResults: {}, inputDigest: 'digest', error: null, createdAt: 'now', updatedAt: 'now', finishedAt: 'now' }
+  const handlers = () => ({ onStarted: vi.fn(), onProgress: vi.fn(), onPhase: vi.fn(), onDone: vi.fn(), onError: vi.fn(), onCancelled: vi.fn() })
+
+  it('uses the server paths, methods, JSON bodies and camelCase/snake_case response shapes for all management calls', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ synthesis, syntheses: [synthesis], share: { url: '/share/token', synthesisId: 's1' }, questions: [{ id: 'q', node_id: 'n' }], question: { id: 'q', status: 'resolved' }, retrospective: { content_md: 'recap' }, cached: true, lines: [{ type: 'add', text: 'new' }], node: { id: 'n', verdict: 'adopted' }, merges: [], nodes: [], ok: true })))
+    const api = createApi({ base: '/test/', fetchImpl })
+    const calls: Array<[() => Promise<unknown>, string, string, unknown?]> = [
+      [() => api.listSyntheses('t1'), '/trees/t1/syntheses', 'GET'],
+      [() => api.getSynthesis('s1'), '/syntheses/s1', 'GET'],
+      [() => api.cancelSynthesis('s1'), '/syntheses/s1/cancel', 'POST', {}],
+      [() => api.diffSyntheses('s1', 's0'), '/syntheses/s1/diff/s0', 'GET'],
+      [() => api.getSynthesisShare('s1'), '/syntheses/s1/share', 'GET'],
+      [() => api.createSynthesisShare('s1'), '/syntheses/s1/share', 'POST', {}],
+      [() => api.revokeSynthesisShare('s1'), '/syntheses/s1/share', 'DELETE'],
+      [() => api.listOpenQuestions('t1'), '/trees/t1/open-questions', 'GET'],
+      [() => api.extractOpenQuestions('t1'), '/trees/t1/open-questions/extract', 'POST', {}],
+      [() => api.updateOpenQuestion('q', { status: 'resolved', question: 'Edited?' }), '/open-questions/q', 'PATCH', { status: 'resolved', question: 'Edited?' }],
+      [() => api.getRetrospective('t1'), '/trees/t1/retrospective', 'GET'],
+      [() => api.createRetrospective('t1'), '/trees/t1/retrospective', 'POST', {}],
+      [() => api.listDecisions('t1'), '/trees/t1/decisions', 'GET'],
+      [() => api.setNodeVerdict('n', 'adopted'), '/nodes/n/verdict', 'PATCH', { verdict: 'adopted' }],
+      [() => api.setNodeVerdict('n', null), '/nodes/n/verdict', 'PATCH', { verdict: null }],
+    ]
+    for (const [call, path, method, body] of calls) {
+      const value = await call()
+      const [url, init] = fetchImpl.mock.calls.at(-1)! as unknown as [string, RequestInit]
+      expect(url).toBe(`/test${path}`)
+      expect(init.method ?? 'GET').toBe(method)
+      expect(init.body).toBe(body === undefined ? undefined : JSON.stringify(body))
+      expect(new Headers(init.headers).has('content-type')).toBe(body !== undefined)
+      expect(value).toMatchObject({ synthesis: { contentMd: '## 背景\n正文', treeId: 't1' }, retrospective: { content_md: 'recap' }, questions: [{ node_id: 'n' }] })
+    }
+  })
+
+  it('decodes split UTF-8/CRLF SSE frames, ignores ping and late frames, and sends an explicit empty JSON body', async () => {
+    const events = [
+      { type: 'started', synthesis: { ...synthesis, status: 'queued' }, total: 2 },
+      { type: 'ping' },
+      { type: 'progress', synthesisId: 's1', nodeId: 'n1', status: 'done', completed: 1, total: 2, failed: 0, cached: true },
+      { type: 'phase', phase: 'synthesis', synthesisId: 's1' },
+      { type: 'done', synthesis },
+      { type: 'error', message: 'late ignored' },
+    ]
+    const bytes = new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join(''))
+    const fetchImpl = vi.fn(async () => new Response(new ReadableStream({ start(source) {
+      for (let offset = 0; offset < bytes.length; offset += 7) source.enqueue(bytes.slice(offset, offset + 7))
+      source.close()
+    } })))
+    const listener = handlers()
+    const controller = new AbortController()
+    await createApi({ fetchImpl }).synthesize('t1', listener, controller.signal)
+    expect(fetchImpl).toHaveBeenCalledWith('/api/trees/t1/synthesize', expect.objectContaining({ method: 'POST', body: '{}', signal: controller.signal, headers: { 'content-type': 'application/json' } }))
+    expect(listener.onStarted).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued' }), 2)
+    expect(listener.onProgress).toHaveBeenCalledOnce()
+    expect(listener.onProgress).toHaveBeenCalledWith(expect.objectContaining({ completed: 1, cached: true }))
+    expect(listener.onPhase).toHaveBeenCalledOnce()
+    expect(listener.onDone).toHaveBeenCalledWith(synthesis)
+    expect(listener.onError).not.toHaveBeenCalled()
+    expect(listener.onCancelled).not.toHaveBeenCalled()
+  })
+
+  it.each(['done', 'cancelled', 'error'] as const)('dispatches the %s terminal frame even without a trailing separator', async (type) => {
+    const listener = handlers()
+    const fetchImpl = vi.fn(async () => new Response(`data: ${JSON.stringify({ type, synthesis, message: '具体失败原因' })}`))
+    await createApi({ fetchImpl }).synthesize('t1', listener)
+    if (type === 'done') expect(listener.onDone).toHaveBeenCalledWith(synthesis)
+    if (type === 'cancelled') expect(listener.onCancelled).toHaveBeenCalledWith(synthesis)
+    if (type === 'error') expect(listener.onError).toHaveBeenCalledWith('具体失败原因', synthesis)
+    expect(listener.onDone.mock.calls.length + listener.onCancelled.mock.calls.length + listener.onError.mock.calls.length).toBe(1)
+  })
+
+  it.each(['data: not-json\n\n', 'data: {"type":"ping"}\n\n'])('reports malformed or interrupted streams without reconnecting: %s', async (body) => {
+    const listener = handlers()
+    const fetchImpl = vi.fn(async () => new Response(body))
+    await createApi({ fetchImpl }).synthesize('t1', listener)
+    expect(listener.onError).toHaveBeenCalledOnce()
+    expect(listener.onDone).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('preserves SYNTHESIS_RUNNING details from HTTP 409', async () => {
+    const payload = { code: 'SYNTHESIS_RUNNING', synthesisId: 'existing', error: 'Already running' }
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(payload), { status: 409 }))
+    await expect(createApi({ fetchImpl }).synthesize('t1', handlers())).rejects.toMatchObject({ status: 409, payload })
+  })
+
+  it('cancels a blocked reader on abort and removes the listener and timer', async () => {
+    const cancel = vi.fn()
+    const listener = handlers()
+    const controller = new AbortController()
+    const remove = vi.spyOn(controller.signal, 'removeEventListener')
+    const fetchImpl = vi.fn(async () => new Response(new ReadableStream({ cancel })))
+    vi.useFakeTimers()
+    try {
+      const pending = createApi({ fetchImpl }).synthesize('t1', listener, controller.signal)
+      await Promise.resolve()
+      controller.abort()
+      await pending
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(listener.onCancelled).toHaveBeenCalledOnce()
+      expect(listener.onError).not.toHaveBeenCalled()
+      expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('closes a silent connection after the existing idle window and reports interruption', async () => {
+    const listener = handlers()
+    const cancel = vi.fn()
+    const fetchImpl = vi.fn(async () => new Response(new ReadableStream({ cancel })))
+    vi.useFakeTimers()
+    try {
+      const pending = createApi({ fetchImpl }).synthesize('t1', listener)
+      await vi.advanceTimersByTimeAsync(50_000)
+      await pending
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(listener.onError).toHaveBeenCalledWith('连接已中断，刷新状态后可重新成文')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+})

@@ -1,12 +1,14 @@
 import {
   documentContentOf,
   legacyDocumentToMarkdown,
+  lineDiff,
+  type DiffLine,
   type CorrectDraft,
   type CorrectionMode,
   type CorrectionPatchPair,
 } from '@vibe/shared'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
-import { ApiError, type VersionDiffLine } from '../api/client'
+import { ApiError } from '../api/client'
 import { useApi } from '../api/context'
 import { useWorkbench } from '../state/workbench-store'
 import { LineDiffView } from './VersionPanel'
@@ -49,43 +51,11 @@ export function appendMergeSection(
   return `${source}${separator}## ${section.title}\n\n${section.body}`
 }
 
-export function lineDiff(before: string, after: string): VersionDiffLine[] {
-  const left = before.split('\n')
-  const right = after.split('\n')
-  const lengths = Array.from({ length: left.length + 1 }, () =>
-    Array<number>(right.length + 1).fill(0),
-  )
-  for (let i = left.length - 1; i >= 0; i -= 1) {
-    for (let j = right.length - 1; j >= 0; j -= 1) {
-      lengths[i][j] = left[i] === right[j]
-        ? lengths[i + 1][j + 1] + 1
-        : Math.max(lengths[i + 1][j], lengths[i][j + 1])
-    }
-  }
-  const result: VersionDiffLine[] = []
-  let i = 0
-  let j = 0
-  while (i < left.length && j < right.length) {
-    if (left[i] === right[j]) {
-      result.push({ text: left[i], type: 'same' })
-      i += 1
-      j += 1
-    } else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
-      result.push({ text: left[i++], type: 'del' })
-    } else {
-      result.push({ text: right[j++], type: 'add' })
-    }
-  }
-  while (i < left.length) result.push({ text: left[i++], type: 'del' })
-  while (j < right.length) result.push({ text: right[j++], type: 'add' })
-  return result
-}
-
 interface Preview {
   appliedPairs: AppliedPair[]
   content: string
   draft: CorrectDraft
-  lines: VersionDiffLine[]
+  lines: DiffLine[]
 }
 
 const PROVIDER_CONFIG_ERROR_MESSAGE = 'AI 服务商配置不受支持（仅支持 codex），请在设置中修正'

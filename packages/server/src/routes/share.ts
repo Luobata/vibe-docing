@@ -30,6 +30,29 @@ export function registerShareRoutes(app: DecoratedApp): void {
     return { ok: true }
   })
 
+  const shareableSynthesis = (id: string) => {
+    const synthesis = app.deps.syntheses.get(id)
+    const tree = synthesis && app.deps.trees.get(synthesis.treeId)
+    return synthesis?.status === 'done' && tree?.root_node_id && shareableNode(tree.root_node_id)
+      ? { synthesis, nodeId: tree.root_node_id } : undefined
+  }
+  app.get('/api/syntheses/:synthesisId/share', async (request, reply) => {
+    const target = shareableSynthesis(request.params.synthesisId)
+    if (!target) return reply.code(404).send({ code: 'SYNTHESIS_NOT_FOUND' })
+    return { share: app.deps.share.getSynthesis(target.synthesis.id) }
+  })
+  app.post('/api/syntheses/:synthesisId/share', async (request, reply) => {
+    const target = shareableSynthesis(request.params.synthesisId)
+    if (!target) return reply.code(404).send({ code: 'SYNTHESIS_NOT_FOUND' })
+    return { share: app.deps.share.createSynthesis(target.synthesis.treeId, target.nodeId, target.synthesis.id) }
+  })
+  app.delete('/api/syntheses/:synthesisId/share', async (request, reply) => {
+    const target = shareableSynthesis(request.params.synthesisId)
+    if (!target) return reply.code(404).send({ code: 'SYNTHESIS_NOT_FOUND' })
+    if (!app.deps.share.revokeSynthesis(target.synthesis.id)) return reply.code(404).send({ code: 'SHARE_NOT_FOUND' })
+    return { ok: true }
+  })
+
   // Compatibility: legacy tree-scoped calls continue to target the root node.
   app.get('/api/trees/:treeId/share', async (request, reply) => {
     const tree = app.deps.trees.get(request.params.treeId)
