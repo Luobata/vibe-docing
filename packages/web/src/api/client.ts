@@ -18,7 +18,7 @@ import type {
   VisualStreamEvent,
 } from '@vibe/shared'
 import { visualRuntimeStore } from '../visual/visual-stream-state'
-import type { Decisions, OpenQuestion, Retrospective, RouteConvergence, SettingsPatch, SettingsView, Synthesis, SynthesisProgress } from './types'
+import type { Decisions, Material, OpenQuestion, Retrospective, RouteConvergence, SettingsPatch, SettingsView, Synthesis, SynthesisProgress } from './types'
 
 export interface SynthesisStreamHandlers {
   onStarted(synthesis: Synthesis, total: number): void
@@ -285,6 +285,10 @@ export function createApi(options?: {
 
   return {
     synthesize: (treeId: string, handlers: SynthesisStreamHandlers, signal?: AbortSignal) => synthesisStream(treeId, handlers, signal),
+    listMaterials: (treeId: string) => json<{ materials: Material[] }>(`/trees/${treeId}/materials`),
+    createMaterial: (treeId: string, body: { content: string; title?: string }) => json<{ material: Material }>(`/trees/${treeId}/materials`, { method: 'POST', body: JSON.stringify(body) }),
+    updateMaterial: (id: string, patch: { content?: string; title?: string; enabled?: boolean | 0 | 1 }) => json<{ material: Material }>(`/materials/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    deleteMaterial: (id: string) => json<{ ok: true }>(`/materials/${id}`, { method: 'DELETE' }),
     listSyntheses: (treeId: string) => json<{ syntheses: Synthesis[] }>(`/trees/${treeId}/syntheses`),
     getSynthesis: (id: string) => json<{ synthesis: Synthesis }>(`/syntheses/${id}`),
     cancelSynthesis: (id: string) => json<{ synthesis: Synthesis }>(`/syntheses/${id}/cancel`, { method: 'POST', body: '{}' }),

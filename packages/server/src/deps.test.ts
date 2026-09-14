@@ -31,6 +31,7 @@ describe('createDeps', () => {
     expect(deps.synthesis.prepare).toBeTypeOf('function')
     expect(deps.syntheses.listByTree(tree.id)).toEqual([])
     expect(deps.openQuestions.listByTree(tree.id)).toEqual([])
+    expect(deps.materials.listByTree(tree.id)).toEqual([])
     expect(deps.settings.getProviderConfig().provider).toBe('codex')
   })
 })

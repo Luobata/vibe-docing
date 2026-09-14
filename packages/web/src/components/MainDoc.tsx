@@ -31,6 +31,7 @@ import { CorrectiveMergeButton } from './CorrectiveMergeButton'
 import { DocView } from './DocView'
 import { DiscussionStrip } from './DiscussionStrip'
 import { SynthesisPanel } from './SynthesisPanel'
+import { MaterialsPanel } from './MaterialsPanel'
 import { Icon } from './Icon'
 import { DocumentEditor, type DocumentEditorHandle } from '../editor/DocumentEditor'
 import { MergedConclusions } from './MergedConclusions'
@@ -985,6 +986,7 @@ export function MainDoc() {
         </section>
         <DiscussionStrip key={node.id} node={node} onSaved={upsertNode} />
         <SynthesisPanel key={node.tree_id} node={node} />
+        <MaterialsPanel key={node.tree_id} treeId={node.tree_id} />
         {transcript.map((turn, index) => {
           const turnNode = nodesById[turn.id] ?? turn.answer
           const turnTaskKey = taskKeyByTarget[turn.id]

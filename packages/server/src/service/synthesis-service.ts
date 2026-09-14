@@ -3,7 +3,7 @@ import { documentContentOf, legacyDocumentToMarkdown, prosemirrorToPlainText, ty
 import type { AppDeps } from '../deps'
 import type { Provider } from '../provider/types'
 import type { Synthesis, SynthesisNodeResult } from '../repo/synthesis-repo'
-import { budgetDiscussionContext } from './context-budget'
+import { budgetDiscussionContext, budgetTreeContext } from './context-budget'
 import { streamText } from './discussion-service'
 
 export const DISTILLATION_PROMPT_VERSION = 1
@@ -19,7 +19,7 @@ export const SYNTHESIS_SECTIONS = [
 export class SynthesisError extends Error {
   constructor(public statusCode: number, message: string) { super(message) }
 }
-type SynthesisDeps = Pick<AppDeps, 'db' | 'trees' | 'nodes' | 'discussionMessages' | 'merges' | 'settings' | 'syntheses' | 'openQuestions'>
+type SynthesisDeps = Pick<AppDeps, 'db' | 'trees' | 'nodes' | 'discussionMessages' | 'merges' | 'settings' | 'syntheses' | 'openQuestions' | 'materials'>
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 export type SynthesisEvent =
@@ -51,7 +51,7 @@ export function createSynthesisService(deps: SynthesisDeps) {
     const nodes = ordered.map(({ row, path, depth }, index) => {
       const markdown = legacyDocumentToMarkdown(documentContentOf(row), row.content_schema_version ?? 0)
       const thread = deps.discussionMessages.listByNode(row.id, 20)
-      const budget = budgetDiscussionContext({ document: markdown, thread, digest: [] })
+      const budget = budgetDiscussionContext({ document: markdown, thread, digest: [], materials: [] })
       // Older canonical edits can leave content_hash stale. Include the actual read body without writing it back.
       const contentHash = digest([row.content_hash, markdown])
       return { id: row.id, parentId: row.parent_id, title: title(row), depth, path, number: index + 1,
@@ -158,8 +158,9 @@ export function createSynthesisService(deps: SynthesisDeps) {
   }
   async function extractQuestions(treeId: string, provider: Provider, signal?: AbortSignal) {
     const input = snapshot(treeId)
+    const materials = deps.materials.listByTree(treeId, true).map(({ title, content, updated_at }) => ({ title, content, updated_at }))
     const text = await generate(provider, '抽取仍未解决的开放问题。严格返回 JSON 数组 [{"question":"具体问题","nodeId":"来源节点 id 或 null"}]；没有开放问题返回 []。',
-      { skeleton: input.skeleton, nodes: input.nodes.map(({ id, document, thread }) => ({ id, document, recentDiscussion: thread })), existingQuestions: deps.openQuestions.listByTree(treeId) }, signal)
+      budgetTreeContext({ skeleton: input.skeleton, nodes: input.nodes.map(({ id, document, thread }) => ({ id, document, recentDiscussion: thread })), existingQuestions: deps.openQuestions.listByTree(treeId), ...(materials.length ? { materials } : {}) }), signal)
     const parsed = parseJson(text)
     if (!Array.isArray(parsed) || !parsed.every((item) => item && typeof item.question === 'string' && item.question.trim())) throw new SynthesisError(502, '开放问题格式无效，请重试')
     deps.db.transaction(() => {
@@ -171,11 +172,12 @@ export function createSynthesisService(deps: SynthesisDeps) {
   async function retrospective(treeId: string, provider: Provider, signal?: AbortSignal) {
     const input = snapshot(treeId)
     const questions = deps.openQuestions.listByTree(treeId)
-    const inputDigest = digest([input.inputDigest, questions.map(({ id, question, status, node_id }) => ({ id, question, status, node_id }))])
+    const materials = deps.materials.listByTree(treeId, true).map(({ title, content, updated_at }) => ({ title, content, updated_at }))
+    const inputDigest = digest([input.inputDigest, questions.map(({ id, question, status, node_id }) => ({ id, question, status, node_id })), ...(materials.length ? [materials] : [])])
     const cached = deps.syntheses.retrospective(treeId, inputDigest)
     if (cached) return { retrospective: cached, cached: true }
     const content = await generate(provider, '生成简短的断点回顾 Markdown：当前讨论进展、已作决策、未决问题、下一步。区分事实与建议，便于用户恢复讨论。',
-      { skeleton: input.skeleton, merges: input.merges, openQuestions: questions, recentDiscussion: input.nodes.map(({ id, thread }) => ({ nodeId: id, messages: thread })) }, signal)
+      budgetTreeContext({ skeleton: input.skeleton, merges: input.merges, openQuestions: questions, recentDiscussion: input.nodes.map(({ id, thread }) => ({ nodeId: id, messages: thread })), ...(materials.length ? { materials } : {}) }), signal)
     return { retrospective: deps.syntheses.saveRetrospective(treeId, inputDigest, content), cached: false }
   }
   return { prepare, run, extractQuestions, retrospective }

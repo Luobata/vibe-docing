@@ -15,6 +15,7 @@ import { createShareService } from './service/share-service'
 import { createVaultService } from './service/vault-service'
 import { createSynthesisRepo } from './repo/synthesis-repo'
 import { createOpenQuestionsRepo } from './repo/open-questions-repo'
+import { createMaterialRepo } from './repo/material-repo'
 import { createSynthesisService } from './service/synthesis-service'
 import { createDiscussionRepo } from './repo/discussion-repo'
 import { createDiscussionService } from './service/discussion-service'
@@ -33,6 +34,7 @@ export interface AppDeps {
   discussion: ReturnType<typeof createDiscussionService>
   syntheses: ReturnType<typeof createSynthesisRepo>
   openQuestions: ReturnType<typeof createOpenQuestionsRepo>
+  materials: ReturnType<typeof createMaterialRepo>
   synthesis: ReturnType<typeof createSynthesisService>
   merges: ReturnType<typeof createMergeRepo>
   nodes: ReturnType<typeof createNodeRepo>
@@ -73,8 +75,9 @@ export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string
   const trees = createTreeRepo(options.db, clock)
   const syntheses = createSynthesisRepo(options.db, clock)
   const openQuestions = createOpenQuestionsRepo(options.db, clock)
-  const synthesis = createSynthesisService({ db: options.db, trees, nodes, discussionMessages, merges, settings, syntheses, openQuestions })
-  const discussion = createDiscussionService({ db: options.db, nodes, vault, discussionMessages, merges, settings, annotations, versions })
+  const materials = createMaterialRepo(options.db, clock)
+  const synthesis = createSynthesisService({ db: options.db, trees, nodes, discussionMessages, merges, settings, syntheses, openQuestions, materials })
+  const discussion = createDiscussionService({ db: options.db, nodes, vault, discussionMessages, merges, settings, annotations, versions, materials })
 
   return {
     annotations,
@@ -87,6 +90,7 @@ export function createDeps(options: { clock?: Clock; db: Db; env?: Record<string
     merges,
     syntheses,
     openQuestions,
+    materials,
     synthesis,
     nodes,
     segments,

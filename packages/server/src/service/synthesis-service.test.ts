@@ -29,6 +29,77 @@ function provider(onInput: (input: any) => void = () => {}): Provider {
 }
 
 describe('synthesis service', () => {
+  it('keeps small-tree extract and retrospective payloads byte-for-byte equivalent to their prior shapes', async () => {
+    const { deps, tree, nodes } = setup(3)
+    deps.discussionMessages.append({ nodeId: nodes[1].id, role: 'user', content: 'Discuss this' })
+    const question = deps.openQuestions.upsert(tree.id, { question: 'Which route?', source: 'manual' })
+    const input = deps.synthesis.prepare(tree.id).input
+    const calls: string[] = []
+    const model = createMockProvider({ chunks: ['[]'], onMessages: (messages) => { calls.push(messages[1].content) } })
+    await deps.synthesis.extractQuestions(tree.id, model)
+    await deps.synthesis.retrospective(tree.id, model)
+    expect(calls).toEqual([
+      JSON.stringify({ skeleton: input.skeleton, nodes: input.nodes.map(({ id, document, thread }) => ({ id, document, recentDiscussion: thread })), existingQuestions: [question] }),
+      JSON.stringify({ skeleton: input.skeleton, merges: input.merges, openQuestions: [question], recentDiscussion: input.nodes.map(({ id, thread }) => ({ nodeId: id, messages: thread })) }),
+    ])
+  })
+
+  it('clamps 25-node extract and retrospective inputs including materials to 60k while retaining the complete skeleton and all node excerpts', async () => {
+    const { deps, tree, nodes } = setup(25)
+    nodes.forEach((node, index) => {
+      deps.nodes.updateContent(node.id, { documentContent: `HEAD${index}` + 'x'.repeat(7900) + `TAIL${index}`, contentSchemaVersion: 2 })
+      deps.discussionMessages.append({ nodeId: node.id, role: 'user', content: 't'.repeat(5900) + `LATEST${index}` })
+    })
+    deps.syntheses.setVerdict(nodes[1].id, 'adopted')
+    for (let index = 0; index < 5; index++) deps.materials.create(tree.id, { title: `Source ${index}`, content: String(index).repeat(10_000) })
+    const skeleton = deps.synthesis.prepare(tree.id).input.skeleton
+    const calls: string[] = []
+    const model = createMockProvider({ chunks: ['[]'], onMessages: (messages) => { calls.push(messages[1].content) } })
+    await deps.synthesis.extractQuestions(tree.id, model)
+    await deps.synthesis.retrospective(tree.id, model)
+    for (const raw of calls) {
+      expect(raw.length).toBeLessThanOrEqual(60_000)
+      expect(JSON.parse(raw).skeleton).toEqual(skeleton)
+      expect(JSON.parse(raw).truncated).toContain('materials')
+    }
+    const extract = JSON.parse(calls[0])
+    const recap = JSON.parse(calls[1])
+    expect(extract.nodes.map((item: { id: string }) => item.id)).toEqual(skeleton.map((item) => item.id))
+    expect(recap.recentDiscussion.map((item: { nodeId: string }) => item.nodeId)).toEqual(skeleton.map((item) => item.id))
+    for (const [index, node] of nodes.entries()) {
+      const document = extract.nodes.find((item: { id: string }) => item.id === node.id).document
+      expect(document).toMatch(new RegExp(`^HEAD${index}[\\s\\S]*TAIL${index}$`))
+      expect(recap.recentDiscussion.find((item: { nodeId: string }) => item.nodeId === node.id).messages.at(-1).content).toMatch(new RegExp(`LATEST${index}$`))
+    }
+  })
+
+  it('includes only enabled materials in tree tools, invalidates retrospective cache on edits, and leaves synthesis input/cache unchanged', async () => {
+    const { deps, tree, run } = setup(1)
+    const first = await run(provider())
+    const material = deps.materials.create(tree.id, { title: 'Source', content: 'PRIVATE_BACKGROUND' }).material
+    const disabled = deps.materials.create(tree.id, { content: 'DISABLED_BACKGROUND' }).material
+    deps.materials.update(disabled.id, { enabled: false })
+    const calls: string[] = []
+    const model = createMockProvider({ chunks: ['[]'], onMessages: (messages) => { calls.push(messages[1].content) } })
+    await deps.synthesis.extractQuestions(tree.id, model)
+    const recap = await deps.synthesis.retrospective(tree.id, model)
+    expect((await deps.synthesis.retrospective(tree.id, model)).cached).toBe(true)
+    expect(calls).toHaveLength(2)
+    calls.forEach((raw) => { expect(raw).toContain('PRIVATE_BACKGROUND'); expect(raw).not.toContain('DISABLED_BACKGROUND') })
+    const synthCalls = vi.fn()
+    const next = await run(provider(synthCalls))
+    expect(synthCalls).not.toHaveBeenCalled()
+    expect(next.inputDigest).toBe(first.inputDigest)
+    deps.materials.update(material.id, { content: 'UPDATED_BACKGROUND' })
+    const updated = await deps.synthesis.retrospective(tree.id, model)
+    expect(updated.cached).toBe(false)
+    expect(updated.retrospective.id).not.toBe(recap.retrospective.id)
+    expect(calls.at(-1)).toContain('UPDATED_BACKGROUND')
+    deps.materials.update(material.id, { enabled: false })
+    expect((await deps.synthesis.retrospective(tree.id, model)).cached).toBe(false)
+    expect(calls.at(-1)).not.toContain('BACKGROUND')
+  })
+
   it.each(['##', '###'])('strips a matching leading %s heading before saving sections and Markdown', async (heading) => {
     const { deps, run } = setup(1)
     const result = await run(createMockProvider({ chunks: [JSON.stringify({

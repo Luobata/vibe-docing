@@ -1,5 +1,10 @@
 import type { MergeRow, NodeRow, RouteTarget } from '@vibe/shared'
 
+export interface Material {
+  id: string; tree_id: string; title: string; content: string; content_hash: string
+  enabled: 0 | 1; created_at: string; updated_at: string
+}
+
 export interface Synthesis {
   id: string
   treeId: string

@@ -25,6 +25,7 @@ import { registerDocumentContentRoutes } from './routes/document-content'
 import { registerVaultRoutes } from './routes/vault'
 import { registerSystemRoutes } from './routes/system'
 import { registerSynthesisRoutes } from './routes/synthesis'
+import { registerMaterialRoutes } from './routes/materials'
 import { registerDiscussionRoutes } from './routes/discussion'
 
 export type DecoratedApp = AppInstance & { deps: AppDeps }
@@ -41,6 +42,7 @@ export function buildApp(deps?: AppDeps): DecoratedApp {
   registerAnswerRoutes(app)
   registerDiscussionRoutes(app)
   registerSynthesisRoutes(app)
+  registerMaterialRoutes(app)
   registerNodeEditRoutes(app)
   registerDocumentContentRoutes(app)
   registerVaultRoutes(app)

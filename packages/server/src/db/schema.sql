@@ -1,3 +1,15 @@
+CREATE TABLE IF NOT EXISTS materials (
+  id TEXT PRIMARY KEY,
+  tree_id TEXT NOT NULL REFERENCES trees(id),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(tree_id, content_hash)
+);
+
 CREATE TABLE IF NOT EXISTS tree_folders (
   path TEXT PRIMARY KEY,
   created_at TEXT NOT NULL

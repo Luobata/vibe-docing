@@ -2917,3 +2917,29 @@ button { font: inherit; color: inherit; }
 .synthesis-resolved > div > span { color: var(--text-muted); text-decoration: line-through; }
 .synthesis-share-url { box-sizing: border-box; width: 100%; padding: 8px 10px; font: 12px var(--mono); color: var(--text-2); border: 1px solid var(--border-2); border-radius: var(--r1); background: var(--surface); }
 .synthesis-content :is(button, select, input):focus-visible, .synthesis-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Tree-level reference materials. */
+.material-panel { margin: 18px 0; border-top: 1px solid var(--border-2); border-bottom: 1px solid var(--border-2); }
+.material-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 0; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.material-toggle > .material-muted { margin-left: auto; }
+.material-content { padding-bottom: 16px; min-width: 0; }
+.material-muted { color: var(--text-muted); font-size: 12px; }
+.material-capacity { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-2); font-size: 12px; }
+.material-list { list-style: none; margin: 12px 0 18px; padding: 0; }
+.material-list > li { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 12px 0; border-bottom: 1px solid var(--border-2); }
+.material-summary { display: grid; gap: 5px; min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; font-size: 13px; color: var(--text-2); }
+.material-summary strong { font-weight: 500; }
+.material-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.material-enable { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 12px; }
+.material-enable input { accent-color: var(--primary); }
+.material-button { display: inline-flex; align-items: center; justify-content: center; padding: 6px 9px; border: 1px solid var(--border-2); border-radius: var(--r1); background: transparent; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.material-button:hover:not(:disabled) { background: var(--surface-hover); }
+.material-button:disabled { opacity: .45; cursor: default; }
+.material-form { display: grid; gap: 8px; }
+.material-form h3 { margin: 0 0 4px; color: var(--text-2); font-size: 13px; font-weight: 500; }
+.material-form > label { color: var(--text-2); font-size: 12px; }
+.material-form > :is(input, textarea) { box-sizing: border-box; display: block; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-2); border-radius: var(--r2); background: var(--surface); color: var(--text-1); font: inherit; font-size: 14px; line-height: 1.6; }
+.material-form textarea { resize: vertical; }
+.material-form > p { margin: 0; }
+.material-limit-error { color: var(--danger); font-size: 12px; }
+.material-content :is(button, input, textarea):focus-visible, .material-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

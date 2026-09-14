@@ -1,5 +1,45 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createApi } from './client'
+import { ApiError, createApi } from './client'
+
+describe('materials API client', () => {
+  const material = { id: 'm1', tree_id: 't1', title: 'Source', content: 'Text', content_hash: 'hash', enabled: 1 as const, created_at: 'then', updated_at: 'now' }
+
+  it('uses the four material routes with their exact methods, bodies and snake_case responses', async () => {
+    const responses = [{ materials: [material] }, { material }, { material: { ...material, enabled: 0 } }, { ok: true }]
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, init: init ?? {} })
+      return new Response(JSON.stringify(responses[requests.length - 1]), { status: requests.length === 2 ? 201 : 200 })
+    }) as unknown as typeof fetch
+    const api = createApi({ fetchImpl })
+    expect(await api.listMaterials('t1')).toEqual(responses[0])
+    expect(await api.createMaterial('t1', { content: 'Text', title: 'Source' })).toEqual(responses[1])
+    expect(await api.updateMaterial('m1', { title: 'Edited', content: 'Updated', enabled: false })).toEqual(responses[2])
+    expect(await api.deleteMaterial('m1')).toEqual(responses[3])
+    expect(requests.map(({ url, init }) => [url, init.method ?? 'GET', init.body])).toEqual([
+      ['/api/trees/t1/materials', 'GET', undefined],
+      ['/api/trees/t1/materials', 'POST', JSON.stringify({ content: 'Text', title: 'Source' })],
+      ['/api/materials/m1', 'PATCH', JSON.stringify({ title: 'Edited', content: 'Updated', enabled: false })],
+      ['/api/materials/m1', 'DELETE', undefined],
+    ])
+    expect(requests.map(({ init }) => new Headers(init.headers).has('content-type'))).toEqual([false, true, true, false])
+  })
+
+  it('accepts an idempotent 200 create response with an omitted title and preserves the existing disabled row', async () => {
+    const existing = { material: { ...material, enabled: 0 } }
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(existing), { status: 200 }))
+    await expect(createApi({ fetchImpl }).createMaterial('t1', { content: 'Text' })).resolves.toEqual(existing)
+    expect(fetchImpl).toHaveBeenCalledWith('/api/trees/t1/materials', expect.objectContaining({ body: '{"content":"Text"}' }))
+  })
+
+  it.each([[400, 'MATERIAL_TOO_LARGE', '单条素材不能超过 10,000 字符'], [400, 'TREE_MATERIAL_LIMIT', '每棵树最多保存 20 条素材'], [409, 'MATERIAL_ALREADY_EXISTS', '当前树中已有相同内容的素材']] as const)('preserves %s %s and the readable server message', async (status, code, error) => {
+    const payload = { code, error }
+    const api = createApi({ fetchImpl: vi.fn(async () => new Response(JSON.stringify(payload), { status })) })
+    const request = status === 409 ? api.updateMaterial('m1', { content: 'Duplicate' }) : api.createMaterial('t1', { content: 'Too much' })
+    await expect(request).rejects.toBeInstanceOf(ApiError)
+    await expect(request).rejects.toMatchObject({ status, payload })
+  })
+})
 
 describe('api client', () => {
   it('omits json content-type from requests without a body', async () => {

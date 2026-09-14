@@ -19,6 +19,30 @@ afterEach(() => {
 })
 
 describe('db schema', () => {
+  it('adds materials to an existing database and preserves their content and uniqueness on a second open', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vibe-material-migration-'))
+    temporaryDirectories.push(directory)
+    const path = join(directory, 'legacy.db')
+    const legacy = openDb(path)
+    legacy.exec("DROP TABLE materials; INSERT INTO trees (id, title, created_at, updated_at) VALUES ('t', 'Keep', 'now', 'now')")
+    const trees = legacy.prepare('SELECT * FROM trees').all()
+    legacy.close()
+    const upgraded = openDb(path)
+    upgraded.prepare('INSERT INTO materials (id, tree_id, title, content, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('m', 't', 'Source', 'Keep material', 'hash', 'now', 'now')
+    const materials = upgraded.prepare('SELECT * FROM materials').all()
+    upgraded.close()
+    const reopened = openDb(path)
+    openDatabases.push(reopened)
+    expect(reopened.prepare('SELECT * FROM trees').all()).toEqual(trees)
+    expect(reopened.prepare('SELECT * FROM materials').all()).toEqual(materials)
+    expect(materials).toMatchObject([{ enabled: 1 }])
+    expect(() => reopened.prepare('INSERT INTO materials (id, tree_id, title, content, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('other', 't', 'Duplicate', 'Keep material', 'hash', 'now', 'now')).toThrow('UNIQUE')
+    expect(reopened.pragma('integrity_check')).toEqual([{ integrity_check: 'ok' }])
+    expect(reopened.pragma('foreign_key_check')).toEqual([])
+  })
+
   it('adds discussions to a legacy database without losing messages on a second open', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vibe-discussion-migration-'))
     temporaryDirectories.push(directory)
