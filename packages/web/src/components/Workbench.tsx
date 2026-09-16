@@ -1,6 +1,7 @@
 import type { AnnotationRow } from '@vibe/shared'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useApi } from '../api/context'
+import { downloadNodeMarkdown } from '../api/download'
 import { COLUMN_MIN_WIDTHS, getColumnMaxWidth, useColumnResize, type ColumnSide } from '../flow/use-column-resize'
 import { scrollMainDocumentToTop } from '../flow/document-transition'
 import { useGenerationTasks, useWorkbench } from '../state/workbench-store'
@@ -171,6 +172,7 @@ export function Workbench() {
   const toggleFocus = useWorkbench((state) => state.toggleFocus)
   const nodesById = useWorkbench((state) => state.nodesById)
   const mainNodeId = useWorkbench((state) => state.mainNodeId)
+  const mainTask = useGenerationTasks((snapshot) => mainNodeId ? snapshot.byKey[snapshot.byTarget[mainNodeId] ?? ''] : undefined)
   const notesForMain = useWorkbench((state) => state.notesForMain)
   const toast = useWorkbench((state) => state.toast)
   const treeId = useWorkbench((state) => state.treeId)
@@ -401,6 +403,8 @@ export function Workbench() {
               </button>
             )}
             <SharePanel disabled={!mainNodeId} nodeId={mainNodeId} portal={portalRoot} />
+            <button className="quiet-button" type="button" disabled={!mainNodeId || !nodesById[mainNodeId] || nodesById[mainNodeId].status === 'streaming' || mainTask?.status === 'streaming'}
+              onClick={() => { if (mainNodeId) downloadNodeMarkdown(nodesById[mainNodeId], treeTitle ?? '') }}>下载 .md</button>
             <button
               aria-label={focusMode ? '退出沉浸聚焦' : '进入沉浸聚焦'}
               className="quiet-button"

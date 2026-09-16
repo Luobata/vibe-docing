@@ -5,6 +5,7 @@
   "profile": "user:gsb-local",
   "session": "vibe-docing",
   "permission": "full-access",
+  "mux": "herdr",
   "watchdog": true,
   "rebuild": true,
   "templateOrigin": {

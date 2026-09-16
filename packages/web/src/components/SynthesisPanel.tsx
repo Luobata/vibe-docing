@@ -2,6 +2,7 @@ import { prosemirrorToPlainText, type DiffLine, type DocumentShareView, type Nod
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, type SynthesisStreamHandlers } from '../api/client'
 import { useApi } from '../api/context'
+import { downloadMarkdown } from '../api/download'
 import type { Decisions, OpenQuestion, Retrospective, Synthesis, SynthesisProgress } from '../api/types'
 import { useCodeEnhancements } from '../doc/highlight-code'
 import { renderMarkdown } from '../doc/markdown'
@@ -27,6 +28,7 @@ export function SynthesisPanel({ node }: { node: NodeRow }) {
   const api = useApi()
   const id = useId()
   const nodesById = useWorkbench((state) => state.nodesById)
+  const treeTitle = useWorkbench((state) => state.treeTitle)
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<typeof TABS[number]>('成文')
   const [loading, setLoading] = useState(false)
@@ -225,6 +227,7 @@ export function SynthesisPanel({ node }: { node: NodeRow }) {
           {results.some((item) => item.cached) && <p className="synthesis-muted">已复用 {results.filter((item) => item.cached).length} 个节点</p>}
           {failed > 0 && <ul className="synthesis-list">{results.filter((item) => item.status === 'failed').map((item) => <li key={item.nodeId}>{selected.footnotes.find((note) => note.nodeId === item.nodeId)?.title ?? item.nodeId}：{item.error}</li>)}</ul>}
           {selected.contentMd && <MarkdownBody content={selected.contentMd} />}
+          <div className="synthesis-actions"><button type="button" disabled={disabled || selected.status !== 'done' || !selected.contentMd} onClick={() => downloadMarkdown(selected.contentMd!, `${treeTitle || labelOf(node)} · 成文`)}>下载 .md</button></div>
           {selected.status === 'done' && <>
             {selected.footnotes.length > 0 && <details className="synthesis-sources"><summary>来源 ({selected.footnotes.length})</summary><ol>{selected.footnotes.map((note) => <li key={note.number}><button type="button" onClick={() => navigate(note.nodeId)}>[^{note.number}] {note.title}</button><span className="synthesis-muted">{note.path.join(' / ')}</span></li>)}</ol></details>}
             <div className="synthesis-actions">

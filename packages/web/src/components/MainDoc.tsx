@@ -985,8 +985,8 @@ export function MainDoc() {
           <MergedConclusions segments={segments} />
         </section>
         <DiscussionStrip key={node.id} node={node} onSaved={upsertNode} />
-        <SynthesisPanel key={node.tree_id} node={node} />
-        <MaterialsPanel key={node.tree_id} treeId={node.tree_id} />
+        <SynthesisPanel key={`synthesis-${node.tree_id}`} node={node} />
+        <MaterialsPanel key={`materials-${node.tree_id}`} treeId={node.tree_id} />
         {transcript.map((turn, index) => {
           const turnNode = nodesById[turn.id] ?? turn.answer
           const turnTaskKey = taskKeyByTarget[turn.id]
